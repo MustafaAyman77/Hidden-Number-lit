@@ -1,45 +1,128 @@
-name: Build Android APK & Release
+name: Build Android APK
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
       - master
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   build:
+    name: Build & Release APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Project
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set Release Version
+        run: |
+          VERSION="v2.1.1"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+          fi
+          echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
+          cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Grant Execute Permission
-        run: chmod +x gradlew
+        run: chmod +x ./gradlew
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease
+      - name: Decode Debug Keystore (if present)
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
 
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
+      - name: Build Debug APK
+        run: |
+          ./gradlew assembleDebug \
+            --stacktrace \
+            --no-daemon \
+            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+
+      - name: Prepare Release Files
+        run: |
+          mkdir -p release_apk
+
+          APK_PATH=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ APK file not found!"
+            exit 1
+          fi
+
+          cp "$APK_PATH" "release_apk/HiddenNumber-${RELEASE_VERSION}.apk"
+
+          ICON=$(find app/src/main/res -type f -name "game_logo.png" | head -n 1)
+
+          if [ -n "$ICON" ]; then
+            cp "$ICON" release_apk/HiddenNumber-Icon.png
+          fi
+
+          ls -la release_apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
-          generate_release_notes: true
-          files: app/build/outputs/apk/release/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: HiddenNumber-${{ env.RELEASE_VERSION }}-APK
+          path: release_apk/*
+          if-no-files-found: error
+
+      - name: Add Job Summary
+        if: always()
+        run: |
+          echo "# 📱 Hidden Number Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ env.RELEASE_VERSION }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| APK | HiddenNumber-${{ env.RELEASE_VERSION }}.apk |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create or Update GitHub Release
+        if: github.event_name != 'pull_request'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.RELEASE_VERSION }}
+          name: Hidden Number ${{ env.RELEASE_VERSION }}
+          artifacts: release_apk/*
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          replacesArtifacts: true
+          generateReleaseNotes: true
+          body: |
+            # 📱 Hidden Number
+
+            **Version:** `${{ env.RELEASE_VERSION }}`
+
+            ## ✨ Features
+            - 🎮 Latest Android APK.
+            - 🚀 Automatic build from GitHub Actions.
+            - 📦 APK attached below in this Release.
+            - 🔄 Release updates automatically on every build.
+
+            ### Installation
+            1. Download **HiddenNumber-${{ env.RELEASE_VERSION }}.apk**
+            2. Enable **Install from unknown sources** if needed.
+            3. Install and enjoy.
+
+          token: ${{ secrets.GITHUB_TOKEN }}
