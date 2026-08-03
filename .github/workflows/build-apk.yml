@@ -1,116 +1,45 @@
-name: Build Android APK
+name: Build Android APK & Release
 
 on:
-  push:
-    branches: [ "main", "master" ]
-    tags: [ "v*" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 permissions:
   contents: write
 
 jobs:
   build:
-    name: Build & Release APK
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout Project
         uses: actions/checkout@v4
 
-      - name: Set Release Version
-        run: |
-          VERSION="v2.1.1"
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION="${{ github.ref_name }}"
-          fi
-          echo "RELEASE_VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Set up JDK 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Decode Debug Keystore (if present)
-        run: |
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
+      - name: Grant Execute Permission
+        run: chmod +x gradlew
 
-      - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
 
-      - name: Prepare Single APK File & Release Artifacts
-        run: |
-          mkdir -p release_apk
-          
-          # Find generated apk and copy it as a single release file
-          APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
-          if [ -n "$APK_PATH" ]; then
-            cp "$APK_PATH" "release_apk/HiddenNumber-${{ env.RELEASE_VERSION }}.apk"
-            echo "Copied single APK from $APK_PATH to release_apk/HiddenNumber-${{ env.RELEASE_VERSION }}.apk"
-          else
-            echo "ERROR: APK file not found!"
-            exit 1
-          fi
-          
-          if [ -f app/src/main/res/drawable/game_logo.png ]; then
-            cp app/src/main/res/drawable/game_logo.png release_apk/HiddenNumber-Icon.png
-          fi
-
-      - name: Upload Single APK Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
         with:
-          name: "HiddenNumber-${{ env.RELEASE_VERSION }}-APK"
-          path: |
-            release_apk/HiddenNumber-${{ env.RELEASE_VERSION }}.apk
-            release_apk/HiddenNumber-Icon.png
-          if-no-files-found: warn
-
-      - name: Add Job Summary
-        if: always()
-        run: |
-          echo "## 📱 Hidden Number (الرقم المجهول) - Android Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| 🏷️ **Version** | \`${{ env.RELEASE_VERSION }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📦 **Single APK** | \`HiddenNumber-${{ env.RELEASE_VERSION }}.apk\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🎯 **Build Status** | Success ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✨ Key Features in Version 2.1.1:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🖼️ **Personal Profile Photos & Avatars:** Choose custom photo from gallery or iconic preset avatars." >> $GITHUB_STEP_SUMMARY
-          echo "- 🔑 **Clear Room Code & Secret Number UI Distinction:** Visible room code banner alongside secret number configuration." >> $GITHUB_STEP_SUMMARY
-          echo "- 👈👉 **Swipeable Quick Emoji Reactions Bar:** 40+ emojis with seamless horizontal swiping during active matches." >> $GITHUB_STEP_SUMMARY
-          echo "- 🌐 **WiFi Local & Online Remote Multiplayer:** Play over local network or remote servers with room codes." >> $GITHUB_STEP_SUMMARY
-          echo "- 🎨 **Cyber Aesthetic & Audio / Haptics:** Cyberpunk neon visual polish with rich sound and vibration effects." >> $GITHUB_STEP_SUMMARY
-          echo "- 🛠️ **Performance & Android 12+/14+ Compatibility:** AudioRecord context binding and app stability fixes." >> $GITHUB_STEP_SUMMARY
-
-      - name: Create or Update GitHub Release
-        if: github.event_name != 'pull_request'
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "release_apk/HiddenNumber-${{ env.RELEASE_VERSION }}.apk,release_apk/HiddenNumber-Icon.png"
-          tag: "${{ env.RELEASE_VERSION }}"
-          name: "Hidden Number App ${{ env.RELEASE_VERSION }} - Release 2.1.1"
-          body: |
-            📱 **تطبيق لعبة الرقم المخفي (Hidden Number) ${{ env.RELEASE_VERSION }} - ملف APK الموحد**
-
-            ✨ **أبرز مميزات وتحسينات الإصدار v2.1.1:**
-            - 🖼️ **دعم اختيار صورة شخصية (Profile Photo):** إمكانية اختيار صورة شخصية حقيقية من معرض الصور أو اختيار إيموجيات تعبيرية مميزة.
-            - 🔑 **عرض وتوضيح كود الغرفة مقابل الرقم السري:** إظهار كود الغرفة بوضوح بجانب شاشة اختيار الرقم السري لمنع التشتت والخلط.
-            - 👈👉 **شريط تفاعلات الإيموجي بالسحب (Swipeable Emoji Bar):** أكثر من 40 إيموجي متنوع أثناء اللعب التنافسي.
-            - 🌐 **اللعب الجماعي أونلاين وعبر الشبكة المحلية (WiFi & Online):** إنشاء وانضمام سلس للغرف بأكواد سريعة.
-            - 🎨 **تصميم عصري سايبراني مع تأثيرات صوتية واهتزازات:** واجهة مستخدم احترافية بالكامل.
-            - 🛠️ **تحسينات الثبات والأداء وتوافقية أندرويد:** تحديث إصدار التطبيق إلى v2.1.1 مع استقرار كامل للذاكرة والاتصال.
-
-            👇 **للتنزيل والتثبيت المباشر على الهاتف:**
-            حمل ملف APK الموحد `HiddenNumber-${{ env.RELEASE_VERSION }}.apk` أدناه وثبته فوراً!
-          allowUpdates: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
