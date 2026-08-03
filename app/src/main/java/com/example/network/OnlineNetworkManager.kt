@@ -1,0 +1,188 @@
+package com.example.network
+
+import android.util.Log
+import com.example.data.model.NetworkMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+class OnlineNetworkManager(private val scope: CoroutineScope) {
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS) // Infinite read timeout for WS
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    private var webSocket: WebSocket? = null
+    private var currentRoomCode: String? = null
+    private var pollingJob: Job? = null
+
+    private val _isConnected = MutableStateFlow(false)
+    val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+
+    private val _latencyMs = MutableStateFlow(35)
+    val latencyMs: StateFlow<Int> = _latencyMs.asStateFlow()
+
+    private val _incomingMessages = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 64)
+    val incomingMessages: SharedFlow<NetworkMessage> = _incomingMessages.asSharedFlow()
+
+    fun connectToRoom(roomCode: String, myPlayerId: String) {
+        disconnect()
+        val cleanCode = roomCode.uppercase().trim()
+        currentRoomCode = cleanCode
+
+        val wsUrl = "wss://ntfy.sh/hn_game_$cleanCode/ws"
+        Log.d("OnlineNetworkManager", "Connecting WS to $wsUrl")
+
+        val request = Request.Builder()
+            .url(wsUrl)
+            .build()
+
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d("OnlineNetworkManager", "WebSocket Connected")
+                _isConnected.value = true
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val jsonObj = JSONObject(text)
+                    val messageBody = jsonObj.optString("message", "")
+                    if (messageBody.isNotEmpty()) {
+                        parseAndEmitMessage(messageBody)
+                    }
+                } catch (e: Exception) {
+                    Log.e("OnlineNetworkManager", "Error parsing msg: ${e.message}")
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e("OnlineNetworkManager", "WebSocket failed: ${t.message}, switching fallback")
+                _isConnected.value = false
+                startHttpFallbackPolling(cleanCode)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                _isConnected.value = false
+            }
+        })
+    }
+
+    fun sendMessage(type: String, senderId: String, senderName: String, payload: String) {
+        val room = currentRoomCode ?: return
+        val json = JSONObject().apply {
+            put("type", type)
+            put("senderId", senderId)
+            put("senderName", senderName)
+            put("payload", payload)
+            put("timestamp", System.currentTimeMillis())
+        }.toString()
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                // Post to ntfy topic endpoint
+                val url = "https://ntfy.sh/hn_game_$room"
+                val body = json.toRequestBody("text/plain".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .post(body)
+                    .build()
+
+                val startTime = System.currentTimeMillis()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        _latencyMs.value = (System.currentTimeMillis() - startTime).toInt().coerceAtLeast(15)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("OnlineNetworkManager", "Failed to send msg: ${e.message}")
+            }
+        }
+    }
+
+    private fun startHttpFallbackPolling(roomCode: String) {
+        pollingJob?.cancel()
+        pollingJob = scope.launch(Dispatchers.IO) {
+            var lastSince = "all"
+            _isConnected.value = true
+            while (_isConnected.value && currentRoomCode == roomCode) {
+                try {
+                    val url = "https://ntfy.sh/hn_game_$roomCode/json?poll=1&since=$lastSince"
+                    val request = Request.Builder().url(url).build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val bodyStr = response.body?.string() ?: ""
+                            val lines = bodyStr.split("\n")
+                            for (line in lines) {
+                                if (line.trim().isNotEmpty()) {
+                                    val jsonObj = JSONObject(line)
+                                    val id = jsonObj.optString("id", "")
+                                    if (id.isNotEmpty()) lastSince = id
+                                    val msg = jsonObj.optString("message", "")
+                                    if (msg.isNotEmpty()) {
+                                        parseAndEmitMessage(msg)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("OnlineNetworkManager", "Polling error: ${e.message}")
+                }
+                delay(1200)
+            }
+        }
+    }
+
+    private fun parseAndEmitMessage(rawText: String) {
+        try {
+            val json = JSONObject(rawText)
+            val type = json.optString("type", "")
+            if (type.isNotEmpty()) {
+                val message = NetworkMessage(
+                    type = type,
+                    senderId = json.optString("senderId", ""),
+                    senderName = json.optString("senderName", ""),
+                    payload = json.optString("payload", ""),
+                    timestamp = json.optLong("timestamp", System.currentTimeMillis())
+                )
+                scope.launch {
+                    _incomingMessages.emit(message)
+                }
+            }
+        } catch (e: Exception) {
+            // Not a valid JSON game message
+        }
+    }
+
+    fun disconnect() {
+        pollingJob?.cancel()
+        pollingJob = null
+        try {
+            webSocket?.close(1000, "Leaving room")
+            webSocket = null
+        } catch (e: Exception) {
+            Log.e("OnlineNetworkManager", "Error closing WS: ${e.message}")
+        }
+        _isConnected.value = false
+        currentRoomCode = null
+    }
+}

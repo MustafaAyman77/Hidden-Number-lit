@@ -1,0 +1,6 @@
+{
+  "name": "لعبة الرقم المخفي",
+  "description": "تطبيق لعبة تخمين الأرقام التفاعلية - لعب فردي وجماعي أونلاين ومحلي مع دردشة صوتية",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
