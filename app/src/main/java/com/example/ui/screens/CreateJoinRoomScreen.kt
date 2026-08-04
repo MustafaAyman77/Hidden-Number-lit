@@ -20,7 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
@@ -173,7 +173,7 @@ fun CreateJoinRoomScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Login,
+                        imageVector = Icons.AutoMirrored.Filled.Login,
                         contentDescription = "Join",
                         tint = NeonMagenta,
                         modifier = Modifier.size(28.dp)
