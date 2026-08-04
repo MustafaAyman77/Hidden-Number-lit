@@ -15,8 +15,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,13 +33,17 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.example.data.model.AppError
 import com.example.ui.theme.DarkSurfaceGlass
 import com.example.ui.theme.GlassBorder
 import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.NeonMagenta
+import com.example.ui.theme.NeonRed
 
 @Composable
 fun GlassCard(
@@ -122,6 +131,59 @@ fun CyberButton(
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold
             )
+        }
+    }
+}
+
+@Composable
+fun ErrorDialog(
+    error: AppError,
+    languageAr: Boolean,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            borderColor = NeonRed,
+            glowEffect = true
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Error Icon",
+                    tint = NeonRed,
+                    modifier = Modifier
+                        .padding(bottom = 12.dp)
+                        .size(48.dp)
+                )
+                Text(
+                    text = if (languageAr) "تنبيه خطأ" else "Error Notice",
+                    color = NeonRed,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text(
+                    text = if (languageAr) error.messageAr else error.messageEn,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 20.dp)
+                )
+                CyberButton(
+                    text = if (languageAr) "موافق" else "Dismiss",
+                    onClick = onDismiss,
+                    primaryColor = NeonRed,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }

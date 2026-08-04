@@ -44,6 +44,9 @@ class LocalWifiNetworkManager(
     private val _incomingMessages = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 64)
     val incomingMessages: SharedFlow<NetworkMessage> = _incomingMessages.asSharedFlow()
 
+    private val _errorEvents = MutableSharedFlow<com.example.data.model.AppError>(extraBufferCapacity = 16)
+    val errorEvents: SharedFlow<com.example.data.model.AppError> = _errorEvents.asSharedFlow()
+
     fun startHosting(port: Int = 8888) {
         disconnect()
         _isServer.value = true
@@ -81,6 +84,9 @@ class LocalWifiNetworkManager(
             } catch (e: Exception) {
                 Log.e("LocalWifi", "Client connect error: ${e.message}")
                 _isConnected.value = false
+                scope.launch {
+                    _errorEvents.emit(com.example.data.model.AppError.LocalWifiConnectionFailed(hostIp))
+                }
             }
         }
     }

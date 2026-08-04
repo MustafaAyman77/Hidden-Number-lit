@@ -126,6 +126,8 @@ class AiBotEngine {
     ): String {
         when (gameType) {
             GameType.RANGE_1_100 -> {
+                lowBound = 1
+                highBound = 100
                 for (att in previousAttempts) {
                     val g = att.guessedNumber.toIntOrNull() ?: continue
                     if (att.isHigher == true && g >= lowBound) {
@@ -154,25 +156,26 @@ class AiBotEngine {
             }
 
             GameType.CODE_SECRET -> {
-                if (possibleCodes.isEmpty()) {
-                    possibleCodes = generatePossibleCodes(codeLength, allowRepetition)
-                }
+                var candidates = generatePossibleCodes(codeLength, allowRepetition)
 
-                // Filter possible codes based on exact match feedback
+                // Filter candidates based on exact match feedback from previous attempts
                 for (att in previousAttempts) {
-                    possibleCodes.retainAll { code ->
+                    val filtered = candidates.filter { code ->
                         calculateExactMatches(att.guessedNumber, code) == att.exactMatches
+                    }.toMutableList()
+                    if (filtered.isNotEmpty()) {
+                        candidates = filtered
                     }
                 }
 
-                if (possibleCodes.isEmpty()) {
-                    possibleCodes = generatePossibleCodes(codeLength, allowRepetition)
+                if (candidates.isEmpty()) {
+                    candidates = generatePossibleCodes(codeLength, allowRepetition)
                 }
 
                 return when (difficulty) {
                     AiDifficulty.EASY -> generateSecretNumber(GameType.CODE_SECRET, codeLength, allowRepetition)
-                    AiDifficulty.MEDIUM -> possibleCodes.random()
-                    AiDifficulty.HARD, AiDifficulty.IMPOSSIBLE -> possibleCodes.first()
+                    AiDifficulty.MEDIUM -> candidates.random()
+                    AiDifficulty.HARD, AiDifficulty.IMPOSSIBLE -> candidates.first()
                 }
             }
         }
@@ -180,7 +183,7 @@ class AiBotEngine {
 
     private fun generatePossibleCodes(length: Int, allowRepetition: Boolean): MutableList<String> {
         val list = mutableListOf<String>()
-        val maxPossibilities = 1000 // Limit for performance if len is high
+        val maxPossibilities = if (length <= 4) 10000 else 5000
         
         fun search(current: String) {
             if (list.size >= maxPossibilities) return

@@ -44,6 +44,9 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
     private val _incomingMessages = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 64)
     val incomingMessages: SharedFlow<NetworkMessage> = _incomingMessages.asSharedFlow()
 
+    private val _errorEvents = MutableSharedFlow<com.example.data.model.AppError>(extraBufferCapacity = 16)
+    val errorEvents: SharedFlow<com.example.data.model.AppError> = _errorEvents.asSharedFlow()
+
     fun connectToRoom(roomCode: String, myPlayerId: String) {
         disconnect()
         val cleanCode = roomCode.uppercase().trim()
@@ -77,6 +80,9 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e("OnlineNetworkManager", "WebSocket failed: ${t.message}, switching fallback")
                 _isConnected.value = false
+                scope.launch {
+                    _errorEvents.emit(com.example.data.model.AppError.NetworkConnectionFailed())
+                }
                 startHttpFallbackPolling(cleanCode)
             }
 

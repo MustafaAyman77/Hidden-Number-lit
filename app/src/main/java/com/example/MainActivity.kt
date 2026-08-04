@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
             val isSpeakerMuted by viewModel.voiceChatManager.isSpeakerMuted.collectAsState()
             val audioLevel by viewModel.voiceChatManager.audioLevel.collectAsState()
             val lastEmoji by viewModel.lastReactionEmoji.collectAsState()
+            val appError by viewModel.appError.collectAsState()
 
             val layoutDirection = if (languageAr) LayoutDirection.Rtl else LayoutDirection.Ltr
 
@@ -70,6 +71,13 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
+                            if (appError != null) {
+                                com.example.ui.components.ErrorDialog(
+                                    error = appError!!,
+                                    languageAr = languageAr,
+                                    onDismiss = { viewModel.clearAppError() }
+                                )
+                            }
                             when (currentScreen) {
                                 AppScreen.HOME -> {
                                     HomeScreen(

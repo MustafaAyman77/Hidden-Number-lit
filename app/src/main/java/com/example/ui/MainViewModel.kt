@@ -10,6 +10,7 @@ import com.example.audio.VoiceChatManager
 import com.example.data.local.AppDatabase
 import com.example.data.local.MatchRecord
 import com.example.data.model.AiDifficulty
+import com.example.data.model.AppError
 import com.example.data.model.GameMode
 import com.example.data.model.GameType
 import com.example.data.model.GuessAttempt
@@ -48,6 +49,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val onlineNetworkManager = OnlineNetworkManager(viewModelScope)
     val localWifiNetworkManager = LocalWifiNetworkManager(application, viewModelScope)
     private val aiBotEngine = AiBotEngine()
+
+    // App Error State
+    private val _appError = MutableStateFlow<AppError?>(null)
+    val appError: StateFlow<AppError?> = _appError.asStateFlow()
+
+    fun clearAppError() {
+        _appError.value = null
+    }
+
+    fun setError(error: AppError) {
+        _appError.value = error
+    }
 
     // App Navigation State
     private val _currentScreen = MutableStateFlow(AppScreen.HOME)
@@ -171,6 +184,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             localWifiNetworkManager.incomingMessages.collectLatest { handleNetworkMessage(it) }
+        }
+        viewModelScope.launch {
+            onlineNetworkManager.errorEvents.collect { err ->
+                if (_selectedMode.value == GameMode.ONLINE_ROOM) {
+                    _appError.value = err
+                }
+            }
+        }
+        viewModelScope.launch {
+            localWifiNetworkManager.errorEvents.collect { err ->
+                if (_selectedMode.value == GameMode.LOCAL_WIFI) {
+                    _appError.value = err
+                }
+            }
         }
     }
 
@@ -372,7 +399,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createRoom() {
         _isHost.value = true
-        _roomCode.value = generateRoomCode()
+        if (_selectedMode.value == GameMode.LOCAL_WIFI) {
+            _roomCode.value = localWifiNetworkManager.getLocalIpAddress()
+        } else {
+            _roomCode.value = generateRoomCode()
+        }
         val me = RoomPlayer(
             id = _playerProfile.value.id,
             name = _playerProfile.value.username,
@@ -398,9 +429,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun joinRoom(codeToJoin: String) {
-        if (codeToJoin.trim().isEmpty()) return
+        val trimmedCode = codeToJoin.trim()
+        if (trimmedCode.isEmpty()) {
+            setError(AppError.CustomError("يرجى إدخال رمز الغرفة أو عنوان IP الخاص بالمضيف.", "Please enter a valid room PIN or host IP address."))
+            return
+        }
         _isHost.value = false
-        _roomCode.value = codeToJoin.uppercase().trim()
+        _roomCode.value = trimmedCode.uppercase()
         val me = RoomPlayer(
             id = _playerProfile.value.id,
             name = _playerProfile.value.username,
@@ -468,7 +503,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setMySecretNumberAndStart(secret: String) {
-        if (secret.isEmpty()) return
+        if (secret.isEmpty()) {
+            setError(AppError.InvalidSecretInput())
+            return
+        }
+        if (_selectedType.value == GameType.CODE_SECRET) {
+            if (secret.length != _codeLength.value) {
+                setError(AppError.InvalidSecretInput(
+                    messageAr = "الرقم السري يجب أن يكون مكوناً من ${_codeLength.value} أرقام.",
+                    messageEn = "Secret code must be exactly ${_codeLength.value} digits."
+                ))
+                return
+            }
+            if (!_allowRepetition.value && secret.toSet().size != secret.length) {
+                setError(AppError.InvalidSecretInput(
+                    messageAr = "تكرار الأرقام غير مسموح به في إعدادات الجولة الحالية.",
+                    messageEn = "Repeated digits are disabled for this round."
+                ))
+                return
+            }
+        } else if (_selectedType.value == GameType.RANGE_1_100) {
+            val num = secret.toIntOrNull()
+            if (num == null || num !in 1..100) {
+                setError(AppError.InvalidSecretInput(
+                    messageAr = "يرجى اختيار رقم صحيح بين 1 و 100.",
+                    messageEn = "Please choose a valid number between 1 and 100."
+                ))
+                return
+            }
+        }
+
         _mySecretNumber.value = secret
         aiBotEngine.resetAiState(_selectedType.value, _codeLength.value, _allowRepetition.value)
 

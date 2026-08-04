@@ -40,8 +40,8 @@ data class GuessAttempt(
     val guessedNumber: String,
     val exactMatches: Int = 0,
     val totalLength: Int = 4,
-    val clueTextAr: String,
-    val clueTextEn: String,
+    val clueTextAr: String = "",
+    val clueTextEn: String = "",
     val isWin: Boolean = false,
     val proximityPercent: Int = 0,
     val isHigher: Boolean? = null,
@@ -65,4 +65,35 @@ data class NetworkMessage(
     val payload: String,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+sealed class AppError(
+    open val messageAr: String,
+    open val messageEn: String
+) {
+    data class NetworkConnectionFailed(
+        override val messageAr: String = "فشل الاتصال بالسيرفر. يرجى التحقق من اتصال الإنترنت والإعادة.",
+        override val messageEn: String = "Failed to connect to server. Please check your internet connection."
+    ) : AppError(messageAr, messageEn)
+
+    data class RoomNotFoundOrClosed(
+        override val messageAr: String = "الغرفة غير موجودة أو تم إغلاقها من قِبل المضيف.",
+        override val messageEn: String = "Room not found or closed by host."
+    ) : AppError(messageAr, messageEn)
+
+    data class LocalWifiConnectionFailed(
+        val ipAddress: String,
+        override val messageAr: String = "فشل الاتصال عبر الشبكة المحلية بالمرسل ($ipAddress). تأكد من الاتصال بنفس شبكة الواي فاي.",
+        override val messageEn: String = "Failed to connect via local Wi-Fi to $ipAddress. Ensure both devices are on the same Wi-Fi."
+    ) : AppError(messageAr, messageEn)
+
+    data class InvalidSecretInput(
+        override val messageAr: String = "الرقم السري غير صالح، يجب أن يطابق الشروط المحددة.",
+        override val messageEn: String = "Invalid secret number input."
+    ) : AppError(messageAr, messageEn)
+
+    data class CustomError(
+        override val messageAr: String,
+        override val messageEn: String = messageAr
+    ) : AppError(messageAr, messageEn)
+}
 
