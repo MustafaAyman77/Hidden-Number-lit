@@ -186,7 +186,11 @@ fun CreateJoinRoomScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = if (languageAr) "أدخل الرمز السداسي الذي أنشأه الخصم للانضمام السريع" else "Enter the 6-digit PIN created by your opponent",
+                            text = if (mode == GameMode.LOCAL_WIFI) {
+                                if (languageAr) "أدخل عنوان IP الخاص بشبكة الخصم شاملاً الأرقام والنقاط (.)" else "Enter opponent's Host IP address (including numbers & dots)"
+                            } else {
+                                if (languageAr) "أدخل الرمز السداسي الذي أنشأه الخصم للانضمام السريع" else "Enter the 6-digit PIN created by your opponent"
+                            },
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
@@ -194,23 +198,33 @@ fun CreateJoinRoomScreen(
                 }
 
                 Text(
-                    text = if (languageAr) "خانة إدخال رمز الغرفة للخصم:" else "Opponent's Room PIN Input:",
+                    text = if (mode == GameMode.LOCAL_WIFI) {
+                        if (languageAr) "عنوان IP الخاص بالغرفة:" else "Opponent's IP Address Input:"
+                    } else {
+                        if (languageAr) "خانة إدخال رمز الغرفة للخصم:" else "Opponent's Room PIN Input:"
+                    },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
 
+                val maxLen = if (mode == GameMode.LOCAL_WIFI) 15 else 6
+
                 OutlinedTextField(
                     value = inputRoomCode,
                     onValueChange = {
-                        if (it.length <= 6) {
+                        if (it.length <= maxLen) {
                             inputRoomCode = it.uppercase().trim()
                             joinError = null
                         }
                     },
                     placeholder = {
                         Text(
-                            text = if (languageAr) "أدخل الرمز السداسي (مثال: 849201)..." else "Enter 6-Digit PIN (e.g. 849201)...",
+                            text = if (mode == GameMode.LOCAL_WIFI) {
+                                if (languageAr) "أدخل عنوان IP كامل (مثال: 192.168.1.5)..." else "Enter full IP address (e.g. 192.168.1.5)..."
+                            } else {
+                                if (languageAr) "أدخل الرمز السداسي (مثال: 849201)..." else "Enter 6-Digit PIN (e.g. 849201)..."
+                            },
                             color = TextSecondary.copy(0.6f),
                             fontSize = 14.sp
                         )
@@ -237,11 +251,21 @@ fun CreateJoinRoomScreen(
                     )
                 }
 
+                val isInputValid = if (mode == GameMode.LOCAL_WIFI) {
+                    inputRoomCode.length >= 7 && inputRoomCode.contains(".")
+                } else {
+                    inputRoomCode.length == 6
+                }
+
                 CyberButton(
                     text = if (languageAr) "الانضمام المباشر للغرفة الآن ⚡" else "Join Room Instantly ⚡",
                     onClick = {
-                        if (inputRoomCode.length < 6) {
-                            joinError = if (languageAr) "يجب إدخال الرمز السداسي كاملاً (6 أرقام)!" else "Must enter full 6-digit PIN!"
+                        if (!isInputValid) {
+                            joinError = if (mode == GameMode.LOCAL_WIFI) {
+                                if (languageAr) "يرجى إدخال عنوان IP كامل مع النقاط (مثال: 192.168.1.5)!" else "Please enter a valid IP address with dots!"
+                            } else {
+                                if (languageAr) "يجب إدخال الرمز السداسي كاملاً (6 أرقام)!" else "Must enter full 6-digit PIN!"
+                            }
                         } else {
                             viewModel.joinRoom(inputRoomCode)
                             Toast.makeText(
@@ -251,7 +275,7 @@ fun CreateJoinRoomScreen(
                             ).show()
                         }
                     },
-                    enabled = inputRoomCode.length == 6,
+                    enabled = isInputValid,
                     modifier = Modifier.fillMaxWidth(),
                     primaryColor = NeonMagenta
                 )
