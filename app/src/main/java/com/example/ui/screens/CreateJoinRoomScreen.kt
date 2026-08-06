@@ -98,7 +98,7 @@ fun CreateJoinRoomScreen(
                 text = if (mode == GameMode.ONLINE_ROOM) {
                     if (languageAr) "غرفة أونلاين (Online PIN)" else "Online Remote Room"
                 } else {
-                    if (languageAr) "شبكة محلية (Local Wi-Fi)" else "Local Wi-Fi Room"
+                    if (languageAr) "شبكة محلية / هوتسبوت (Local Wi-Fi / Hotspot)" else "Local Wi-Fi / Hotspot Room"
                 },
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Black,
@@ -111,6 +111,54 @@ fun CreateJoinRoomScreen(
                 tint = if (mode == GameMode.ONLINE_ROOM) NeonMagenta else NeonEmerald,
                 modifier = Modifier.size(24.dp)
             )
+        }
+
+        // Hotspot Offline Mode Guidance Card for LOCAL_WIFI mode
+        if (mode == GameMode.LOCAL_WIFI) {
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                borderColor = NeonEmerald,
+                glowEffect = true
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (languageAr) "📱 اللعب بدون إنترنت (طريقة نقطة الاتصال - Hotspot):" else "📱 Play Offline (Hotspot Mode):",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NeonEmerald
+                    )
+                    Text(
+                        text = if (languageAr) {
+                            "1️⃣ صانع الغرفة: افتح 'نقطة الاتصال' (Hotspot) من زرك أدناه ثم اضغط 'إنشاء غرفة'.\n" +
+                            "2️⃣ صديقك: يتصل بشبكة الهوتسبوت الخاصة بك، ثم يدخل عنوان IP الضاهر (أو 192.168.43.1) ويضغط انضمام."
+                        } else {
+                            "1️⃣ Room Host: Turn on 'Hotspot' using button below, then tap 'Create Room'.\n" +
+                            "2️⃣ Friend: Connects to your Hotspot, enters your IP address (or 192.168.43.1) and taps Join."
+                        },
+                        fontSize = 12.sp,
+                        color = TextPrimary,
+                        lineHeight = 18.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CyberButton(
+                            text = if (languageAr) "🔥 فتح الهوتسبوت" else "🔥 Open Hotspot",
+                            onClick = { openHotspotSettings(context) },
+                            modifier = Modifier.weight(1f),
+                            primaryColor = NeonEmerald
+                        )
+                        CyberButton(
+                            text = if (languageAr) "📶 إعدادات الواي فاي" else "📶 Wi-Fi Settings",
+                            onClick = { openWifiSettings(context) },
+                            modifier = Modifier.weight(1f),
+                            primaryColor = NeonCyan
+                        )
+                    }
+                }
+            }
         }
 
         // Card 1: Create New Room
@@ -138,16 +186,24 @@ fun CreateJoinRoomScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = if (languageAr) "أنشئ غرفة برمز سداسي فريد وشارك الرمز مع الخصم" else "Generate a unique 6-digit PIN and share with opponent",
+                            text = if (mode == GameMode.LOCAL_WIFI) {
+                                if (languageAr) "قم بتفعيل الهوتسبوت ثم اضغط هنا لاستخراج عنوان IP الخاص بك" else "Turn on Hotspot then tap here to host and generate IP"
+                            } else {
+                                if (languageAr) "أنشئ غرفة برمز سداسي فريد وشارك الرمز مع الخصم" else "Generate a unique 6-digit PIN and share with opponent"
+                            },
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
                     }
                 }
 
-                // Create Button only
+                // Create Button
                 CyberButton(
-                    text = if (languageAr) "إنشاء وتوليد رمز غرفة جديد ⚡" else "Generate New Room PIN ⚡",
+                    text = if (mode == GameMode.LOCAL_WIFI) {
+                        if (languageAr) "إنشاء غرفة محلياً واستخراج عنوان IP 🚀" else "Create Local Room & Show IP 🚀"
+                    } else {
+                        if (languageAr) "إنشاء وتوليد رمز غرفة جديد ⚡" else "Generate New Room PIN ⚡"
+                    },
                     onClick = {
                         viewModel.createRoom()
                         Toast.makeText(
@@ -162,7 +218,7 @@ fun CreateJoinRoomScreen(
             }
         }
 
-        // Card 2: Join Opponent's Room (DIRECTLY BELOW Card 1 as requested)
+        // Card 2: Join Opponent's Room
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
             borderColor = NeonMagenta
@@ -187,7 +243,7 @@ fun CreateJoinRoomScreen(
                         )
                         Text(
                             text = if (mode == GameMode.LOCAL_WIFI) {
-                                if (languageAr) "أدخل عنوان IP الخاص بشبكة الخصم شاملاً الأرقام والنقاط (.)" else "Enter opponent's Host IP address (including numbers & dots)"
+                                if (languageAr) "اتصل بهوتسبوت الخصم وأدخل عنوان IP الظاهر في جهازه" else "Connect to Host's Hotspot and enter their IP address"
                             } else {
                                 if (languageAr) "أدخل الرمز السداسي الذي أنشأه الخصم للانضمام السريع" else "Enter the 6-digit PIN created by your opponent"
                             },
@@ -195,6 +251,19 @@ fun CreateJoinRoomScreen(
                             color = TextSecondary
                         )
                     }
+                }
+
+                if (mode == GameMode.LOCAL_WIFI) {
+                    // Quick Preset Button for Default Hotspot IP (192.168.43.1)
+                    CyberButton(
+                        text = if (languageAr) "⚡ تعبئة IP الهوتسبوت الافتراضي (192.168.43.1)" else "⚡ Auto-fill Default Hotspot IP (192.168.43.1)",
+                        onClick = {
+                            inputRoomCode = "192.168.43.1"
+                            joinError = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        primaryColor = NeonEmerald
+                    )
                 }
 
                 Text(
@@ -221,7 +290,7 @@ fun CreateJoinRoomScreen(
                     placeholder = {
                         Text(
                             text = if (mode == GameMode.LOCAL_WIFI) {
-                                if (languageAr) "أدخل عنوان IP كامل (مثال: 192.168.1.5)..." else "Enter full IP address (e.g. 192.168.1.5)..."
+                                if (languageAr) "أدخل عنوان IP (مثال: 192.168.43.1)..." else "Enter IP address (e.g. 192.168.43.1)..."
                             } else {
                                 if (languageAr) "أدخل الرمز السداسي (مثال: 849201)..." else "Enter 6-Digit PIN (e.g. 849201)..."
                             },
@@ -262,7 +331,7 @@ fun CreateJoinRoomScreen(
                     onClick = {
                         if (!isInputValid) {
                             joinError = if (mode == GameMode.LOCAL_WIFI) {
-                                if (languageAr) "يرجى إدخال عنوان IP كامل مع النقاط (مثال: 192.168.1.5)!" else "Please enter a valid IP address with dots!"
+                                if (languageAr) "يرجى إدخال عنوان IP كامل مع النقاط (مثال: 192.168.43.1)!" else "Please enter a valid IP address with dots!"
                             } else {
                                 if (languageAr) "يجب إدخال الرمز السداسي كاملاً (6 أرقام)!" else "Must enter full 6-digit PIN!"
                             }
@@ -281,5 +350,36 @@ fun CreateJoinRoomScreen(
                 )
             }
         }
+    }
+}
+
+private fun openHotspotSettings(context: android.content.Context) {
+    try {
+        val intent = android.content.Intent("android.settings.TETHER_SETTINGS")
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        try {
+            val intent = android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+            context.startActivity(intent)
+        } catch (e2: Exception) {
+            Toast.makeText(
+                context,
+                "يرجى فتح إعدادات نقطة الاتصال (Hotspot) من شريط الإشعارات",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+}
+
+private fun openWifiSettings(context: android.content.Context) {
+    try {
+        val intent = android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(
+            context,
+            "يرجى فتح إعدادات الواي فاي من إعدادات الهاتف",
+            Toast.LENGTH_LONG
+        ).show()
     }
 }

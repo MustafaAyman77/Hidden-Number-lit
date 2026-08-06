@@ -166,7 +166,11 @@ fun LobbyScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = if (languageAr) "رمز الغرفة السداسي (Room PIN):" else "6-Digit Room PIN:",
+                        text = if (mode == GameMode.LOCAL_WIFI) {
+                            if (languageAr) "عنوان IP الخاص بالغرفة (Hotspot/Wi-Fi):" else "Room Host IP Address:"
+                        } else {
+                            if (languageAr) "رمز الغرفة السداسي (Room PIN):" else "6-Digit Room PIN:"
+                        },
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
@@ -177,13 +181,13 @@ fun LobbyScreen(
                     ) {
                         Text(
                             text = roomCode,
-                            fontSize = 32.sp,
+                            fontSize = if (mode == GameMode.LOCAL_WIFI) 26.sp else 32.sp,
                             fontWeight = FontWeight.Black,
                             color = NeonCyan,
-                            letterSpacing = 4.sp
+                            letterSpacing = if (mode == GameMode.LOCAL_WIFI) 1.sp else 4.sp
                         )
 
-                        // Copy PIN Button
+                        // Copy PIN / IP Button
                         Box(
                             modifier = Modifier
                                 .size(42.dp)
@@ -194,7 +198,11 @@ fun LobbyScreen(
                                     clipboardManager.setText(AnnotatedString(roomCode))
                                     Toast.makeText(
                                         context,
-                                        if (languageAr) "تم نسخ رقم الغرفة! 📋" else "Room code copied! 📋",
+                                        if (mode == GameMode.LOCAL_WIFI) {
+                                            if (languageAr) "تم نسخ عنوان IP! 📋" else "IP Address copied! 📋"
+                                        } else {
+                                            if (languageAr) "تم نسخ رقم الغرفة! 📋" else "Room code copied! 📋"
+                                        },
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 },
@@ -231,7 +239,11 @@ fun LobbyScreen(
 
                     if (isHost) {
                         Text(
-                            text = if (languageAr) "💡 بصفتك صانع الغرفة، زر الإعدادات ⚙️ يتيح لك تحديد طول وقوانين الرقم" else "💡 As Room Host, the Settings button ⚙️ allows configuring rules",
+                            text = if (mode == GameMode.LOCAL_WIFI) {
+                                if (languageAr) "💡 افتح نقطة الاتصال (Hotspot) واطلب من صديقك الاتصال بها وإدخال عنوان IP هذا" else "💡 Turn on your Hotspot, ask your friend to connect and enter this IP"
+                            } else {
+                                if (languageAr) "💡 بصفتك صانع الغرفة، زر الإعدادات ⚙️ يتيح لك تحديد طول وقوانين الرقم" else "💡 As Room Host, the Settings button ⚙️ allows configuring rules"
+                            },
                             fontSize = 11.sp,
                             color = TextSecondary
                         )
