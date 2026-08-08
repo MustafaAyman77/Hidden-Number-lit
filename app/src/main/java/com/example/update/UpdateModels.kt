@@ -15,6 +15,7 @@ data class UpdateManifest(
 
 sealed class UpdateUIState {
     object Idle : UpdateUIState()
+    object Checking : UpdateUIState()
     
     data class Available(
         val manifest: UpdateManifest,

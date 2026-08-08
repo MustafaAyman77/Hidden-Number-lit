@@ -35,6 +35,11 @@ import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.MyApplicationTheme
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+
 class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
@@ -71,6 +76,27 @@ class MainActivity : ComponentActivity() {
             val updateState by viewModel.updateState.collectAsState()
 
             val layoutDirection = if (languageAr) LayoutDirection.Rtl else LayoutDirection.Ltr
+
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        (updateState as? com.example.update.UpdateUIState.ReadyToInstall)?.let { readyState ->
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                if (packageManager.canRequestPackageInstalls()) {
+                                    viewModel.installApk(readyState.apkFilePath)
+                                }
+                            } else {
+                                viewModel.installApk(readyState.apkFilePath)
+                            }
+                        }
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
 
             CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
                 MyApplicationTheme {

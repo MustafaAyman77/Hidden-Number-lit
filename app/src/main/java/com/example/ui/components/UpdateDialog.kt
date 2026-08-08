@@ -140,6 +140,7 @@ fun UpdateDialog(
 
                 Text(
                     text = when (updateState) {
+                        is UpdateUIState.Checking -> if (languageAr) "جاري التحقق من التحديثات ⏳" else "Checking for Updates ⏳"
                         is UpdateUIState.Error -> if (updateState.manifest == null) {
                             if (languageAr) "حالة التحديثات ℹ️" else "Update Status ℹ️"
                         } else {
@@ -362,6 +363,27 @@ fun UpdateDialog(
                             primaryColor = NeonEmerald,
                             modifier = Modifier.fillMaxWidth()
                         )
+                    }
+
+                    is UpdateUIState.Checking -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = NeonCyan,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (languageAr) "جاري الاتصال بسيرفر التحديثات وفحص الإصدارات..." else "Connecting to update server and checking release...",
+                                color = TextSecondary,
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
 
                     is UpdateUIState.Error -> {

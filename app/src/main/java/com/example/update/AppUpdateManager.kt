@@ -40,6 +40,8 @@ class AppUpdateManager(
     fun checkForUpdates(manualTrigger: Boolean = false) {
         scope.launch(Dispatchers.IO) {
             try {
+                _updateState.value = UpdateUIState.Checking
+
                 if (!isNetworkAvailable()) {
                     Log.d("AppUpdateManager", "No network connection. Skipping update check.")
                     if (manualTrigger) {
@@ -48,6 +50,8 @@ class AppUpdateManager(
                             messageAr = "لا يوجد اتصال بالإنترنت للتحقق من التحديثات.",
                             messageEn = "No internet connection to check for updates."
                         )
+                    } else {
+                        _updateState.value = UpdateUIState.Idle
                     }
                     return@launch
                 }
@@ -68,9 +72,11 @@ class AppUpdateManager(
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
-                            messageAr = "أنت تستخدم أحدث إصدار بالفعل ($currentVersionName). لم يتم رفع ملف APK للتحديث في قسم Releases على GitHub بعد.",
-                            messageEn = "You are using the latest version ($currentVersionName). No update APK published on GitHub Releases yet."
+                            messageAr = "أنت تستخدم أحدث إصدار بالفعل ($currentVersionName).",
+                            messageEn = "You are already using the latest version ($currentVersionName)."
                         )
+                    } else {
+                        _updateState.value = UpdateUIState.Idle
                     }
                     return@launch
                 }
@@ -82,6 +88,7 @@ class AppUpdateManager(
                     // Check if user skipped this version (if optional)
                     if (!manifest.mandatory && manifest.versionCode.toLong() == skippedVersionCode && !manualTrigger) {
                         Log.d("AppUpdateManager", "User skipped version ${manifest.versionCode}")
+                        _updateState.value = UpdateUIState.Idle
                         return@launch
                     }
 
@@ -99,10 +106,21 @@ class AppUpdateManager(
                             messageAr = "أنت تستخدم أحدث إصدار بالفعل ($currentVersionName).",
                             messageEn = "You are already using the latest version ($currentVersionName)."
                         )
+                    } else {
+                        _updateState.value = UpdateUIState.Idle
                     }
                 }
             } catch (e: Exception) {
                 Log.e("AppUpdateManager", "Error checking for updates: ${e.message}", e)
+                if (manualTrigger) {
+                    _updateState.value = UpdateUIState.Error(
+                        manifest = null,
+                        messageAr = "حدث خطأ أثناء الاتصال بسيرفر التحديثات.",
+                        messageEn = "An error occurred while checking for updates."
+                    )
+                } else {
+                    _updateState.value = UpdateUIState.Idle
+                }
             }
         }
     }

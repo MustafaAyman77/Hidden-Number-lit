@@ -40,6 +40,10 @@ import com.example.ui.theme.NeonMagenta
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import androidx.compose.runtime.collectAsState
+import com.example.ui.theme.NeonEmerald
+import com.example.update.UpdateUIState
+
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel,
@@ -47,6 +51,8 @@ fun SettingsScreen(
 ) {
     var soundEnabled by remember { mutableStateOf(viewModel.soundManager.soundEnabled) }
     var hapticsEnabled by remember { mutableStateOf(viewModel.soundManager.hapticsEnabled) }
+    val updateState by viewModel.updateState.collectAsState()
+    val isChecking = updateState is UpdateUIState.Checking
 
     Column(
         modifier = Modifier
@@ -139,9 +145,28 @@ fun SettingsScreen(
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(top = 4.dp))
 
                 com.example.ui.components.CyberButton(
-                    text = if (languageAr) "🔄 التحقق من وجود تحديثات" else "🔄 Check for Updates",
-                    onClick = { viewModel.checkUpdatesManually() },
-                    primaryColor = NeonCyan,
+                    text = when (updateState) {
+                        is UpdateUIState.Checking -> if (languageAr) "⏳ جاري التحقق..." else "⏳ Checking..."
+                        is UpdateUIState.Available -> if (languageAr) "🚀 تحديث جديد متوفر!" else "🚀 New Update Available!"
+                        is UpdateUIState.ReadyToInstall -> if (languageAr) "⚙️ تثبيت التحديث" else "⚙️ Install Update"
+                        else -> if (languageAr) "🔄 التحقق من وجود تحديثات" else "🔄 Check for Updates"
+                    },
+                    onClick = {
+                        if (!isChecking) {
+                            if (updateState is UpdateUIState.Available) {
+                                viewModel.downloadAndInstallUpdate((updateState as UpdateUIState.Available).manifest)
+                            } else if (updateState is UpdateUIState.ReadyToInstall) {
+                                viewModel.installApk((updateState as UpdateUIState.ReadyToInstall).apkFilePath)
+                            } else {
+                                viewModel.checkUpdatesManually()
+                            }
+                        }
+                    },
+                    primaryColor = when (updateState) {
+                        is UpdateUIState.Available, is UpdateUIState.ReadyToInstall -> NeonEmerald
+                        else -> NeonCyan
+                    },
+                    enabled = !isChecking,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
