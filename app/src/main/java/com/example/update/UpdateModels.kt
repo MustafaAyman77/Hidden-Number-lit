@@ -4,7 +4,7 @@ import androidx.annotation.Keep
 
 @Keep
 data class UpdateManifest(
-    val versionCode: Int = 0,
+    val versionCode: Int = 1,
     val versionName: String = "1.0.0",
     val apkUrl: String = "",
     val size: String = "",
