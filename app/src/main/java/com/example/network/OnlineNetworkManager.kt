@@ -29,11 +29,15 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS) // Infinite read timeout for WS
         .writeTimeout(10, TimeUnit.SECONDS)
+        .pingInterval(10, TimeUnit.SECONDS) // Ping frames keep WS alive on slow networks
         .build()
 
     private var webSocket: WebSocket? = null
     private var currentRoomCode: String? = null
+    private var currentMyPlayerId: String? = null
     private var pollingJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var lastVoiceSendTime = 0L
 
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
@@ -51,6 +55,7 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
         disconnect()
         val cleanCode = roomCode.uppercase().trim()
         currentRoomCode = cleanCode
+        currentMyPlayerId = myPlayerId
 
         val wsUrl = "wss://ntfy.sh/hn_game_$cleanCode/ws"
         Log.d("OnlineNetworkManager", "Connecting WS to $wsUrl")
@@ -71,9 +76,11 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
                     val messageBody = jsonObj.optString("message", "")
                     if (messageBody.isNotEmpty()) {
                         parseAndEmitMessage(messageBody)
+                    } else if (jsonObj.has("type")) {
+                        parseAndEmitMessage(text)
                     }
                 } catch (e: Exception) {
-                    Log.e("OnlineNetworkManager", "Error parsing msg: ${e.message}")
+                    parseAndEmitMessage(text)
                 }
             }
 
@@ -83,17 +90,39 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
                 scope.launch {
                     _errorEvents.emit(com.example.data.model.AppError.NetworkConnectionFailed())
                 }
-                startHttpFallbackPolling(cleanCode)
+                scheduleAutoReconnect(cleanCode, myPlayerId)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _isConnected.value = false
             }
         })
+
+        // Always run lightweight background HTTP poll alongside WS as a safety fallback
+        startHttpFallbackPolling(cleanCode)
+    }
+
+    private fun scheduleAutoReconnect(roomCode: String, myPlayerId: String) {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch(Dispatchers.IO) {
+            delay(4000)
+            if (currentRoomCode == roomCode && !_isConnected.value) {
+                Log.d("OnlineNetworkManager", "Attempting automatic WebSocket reconnect...")
+                connectToRoom(roomCode, myPlayerId)
+            }
+        }
     }
 
     fun sendMessage(type: String, senderId: String, senderName: String, payload: String) {
         val room = currentRoomCode ?: return
+
+        // Throttle high-frequency voice frames to prevent clogging weak connections
+        if (type == "VOICE") {
+            val now = System.currentTimeMillis()
+            if (now - lastVoiceSendTime < 220) return
+            lastVoiceSendTime = now
+        }
+
         val json = JSONObject().apply {
             put("type", type)
             put("senderId", senderId)
@@ -124,6 +153,8 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
         }
     }
 
+    private val processedMsgKeys = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
+
     private fun startHttpFallbackPolling(roomCode: String) {
         pollingJob?.cancel()
         pollingJob = scope.launch(Dispatchers.IO) {
@@ -145,6 +176,8 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
                                     val msg = jsonObj.optString("message", "")
                                     if (msg.isNotEmpty()) {
                                         parseAndEmitMessage(msg)
+                                    } else if (jsonObj.has("type")) {
+                                        parseAndEmitMessage(line)
                                     }
                                 }
                             }
@@ -162,13 +195,29 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
         try {
             val json = JSONObject(rawText)
             val type = json.optString("type", "")
+            val senderId = json.optString("senderId", "")
+            val timestamp = json.optLong("timestamp", 0L)
+            val payload = json.optString("payload", "")
+
+            // Deduplicate incoming messages across WS and HTTP polling
+            val msgKey = "$type-$senderId-$timestamp-${payload.hashCode()}"
+            if (processedMsgKeys.contains(msgKey)) return
+            processedMsgKeys.add(msgKey)
+            if (processedMsgKeys.size > 200) {
+                val iterator = processedMsgKeys.iterator()
+                if (iterator.hasNext()) {
+                    iterator.next()
+                    iterator.remove()
+                }
+            }
+
             if (type.isNotEmpty()) {
                 val message = NetworkMessage(
                     type = type,
-                    senderId = json.optString("senderId", ""),
+                    senderId = senderId,
                     senderName = json.optString("senderName", ""),
-                    payload = json.optString("payload", ""),
-                    timestamp = json.optLong("timestamp", System.currentTimeMillis())
+                    payload = payload,
+                    timestamp = if (timestamp > 0) timestamp else System.currentTimeMillis()
                 )
                 scope.launch {
                     _incomingMessages.emit(message)
@@ -182,6 +231,8 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
     fun disconnect() {
         pollingJob?.cancel()
         pollingJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
         try {
             webSocket?.close(1000, "Leaving room")
             webSocket = null

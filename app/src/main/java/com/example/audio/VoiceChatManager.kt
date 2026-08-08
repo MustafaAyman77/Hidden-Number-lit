@@ -95,6 +95,8 @@ class VoiceChatManager(
             recordJob = scope.launch(Dispatchers.IO) {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
                 val buffer = ByteArray(minBufferSizeRecord.coerceAtLeast(1024))
+                val byteBufferStream = java.io.ByteArrayOutputStream()
+                var lastSendTime = System.currentTimeMillis()
 
                 while (_isRecording.value) {
                     val readSize = audioRecord?.read(buffer, 0, buffer.size) ?: 0
@@ -104,8 +106,25 @@ class VoiceChatManager(
                         _audioLevel.value = (rms / 32768.0).toFloat().coerceIn(0f, 1f)
 
                         if (!_isMuted.value) {
-                            val encoded = Base64.encodeToString(buffer, 0, readSize, Base64.NO_WRAP)
-                            onAudioPacketReady?.invoke(encoded)
+                            // Silence suppression gate: only accumulate if there's actual speech
+                            if (rms > 700.0) {
+                                byteBufferStream.write(buffer, 0, readSize)
+                            }
+
+                            val now = System.currentTimeMillis()
+                            // Send accumulated audio chunk every 250ms (max 4 requests per sec)
+                            if (now - lastSendTime >= 250) {
+                                val pcmData = byteBufferStream.toByteArray()
+                                byteBufferStream.reset()
+                                lastSendTime = now
+
+                                if (pcmData.isNotEmpty()) {
+                                    val encoded = Base64.encodeToString(pcmData, 0, pcmData.size, Base64.NO_WRAP)
+                                    onAudioPacketReady?.invoke(encoded)
+                                }
+                            }
+                        } else {
+                            byteBufferStream.reset()
                         }
                     }
                 }

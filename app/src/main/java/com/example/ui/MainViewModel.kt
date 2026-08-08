@@ -71,7 +71,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // App Navigation State
-    private val _currentScreen = MutableStateFlow(AppScreen.HOME)
+    private val isProfileRegistered: Boolean
+        get() = prefs.getBoolean("isProfileRegistered", false)
+
+    private val _currentScreen = MutableStateFlow(if (prefs.getBoolean("isProfileRegistered", false)) AppScreen.HOME else AppScreen.PROFILE)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
 
     // Settings
@@ -114,6 +117,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .putInt("wins", profile.wins)
             .putInt("losses", profile.losses)
             .putInt("totalGames", profile.totalGames)
+            .putBoolean("isProfileRegistered", true)
             .apply()
     }
 
@@ -207,7 +211,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startLobbySyncHeartbeat() {
         viewModelScope.launch {
             while (true) {
-                delay(1500)
+                delay(3000)
                 if (_selectedMode.value != GameMode.SINGLE_PLAYER && _roomCode.value.isNotEmpty()) {
                     val currentScr = _currentScreen.value
                     if (currentScr == AppScreen.LOBBY || currentScr == AppScreen.SECRET_SETUP) {

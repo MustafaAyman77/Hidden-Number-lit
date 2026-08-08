@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +88,29 @@ fun getAvatarCharacter(id: Int): AvatarCharacter {
     return PRESET_AVATARS.find { it.id == id } ?: PRESET_AVATARS[0]
 }
 
+fun compressUriToBase64(context: android.content.Context, uri: Uri): String? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+        inputStream.close()
+        if (originalBitmap == null) return null
+
+        val maxDim = 120
+        val scale = Math.min(maxDim.toFloat() / originalBitmap.width, maxDim.toFloat() / originalBitmap.height)
+        val targetW = Math.max(1, (originalBitmap.width * scale).toInt())
+        val targetH = Math.max(1, (originalBitmap.height * scale).toInt())
+
+        val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(originalBitmap, targetW, targetH, true)
+        val baos = java.io.ByteArrayOutputStream()
+        scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, baos)
+        val bytes = baos.toByteArray()
+        val base64Str = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        "data:image/jpeg;base64,$base64Str"
+    } catch (e: Exception) {
+        null
+    }
+}
+
 @Composable
 fun PlayerAvatarView(
     avatarId: Int,
@@ -99,6 +123,20 @@ fun PlayerAvatarView(
     val character = getAvatarCharacter(avatarId)
     val context = LocalContext.current
     var isImageError by remember(customUri) { mutableStateOf(false) }
+
+    val decodedBitmap = remember(customUri) {
+        if (!customUri.isNullOrEmpty()) {
+            try {
+                if (customUri.startsWith("data:image") || customUri.startsWith("data:;base64,") || (!customUri.startsWith("file:") && !customUri.startsWith("content:") && customUri.length > 80)) {
+                    val cleanBase64 = customUri.substringAfter("base64,")
+                    val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                } else null
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+    }
 
     Box(
         modifier = modifier
@@ -117,7 +155,16 @@ fun PlayerAvatarView(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (!customUri.isNullOrEmpty() && !isImageError) {
+        if (decodedBitmap != null) {
+            androidx.compose.foundation.Image(
+                bitmap = decodedBitmap.asImageBitmap(),
+                contentDescription = "Custom Profile Picture",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+            )
+        } else if (!customUri.isNullOrEmpty() && !isImageError) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(customUri)
@@ -154,13 +201,18 @@ fun AvatarSelectionGrid(
     ) { uri: Uri? ->
         if (uri != null) {
             try {
-                val file = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    java.io.FileOutputStream(file).use { output ->
-                        input.copyTo(output)
+                val compressedBase64 = compressUriToBase64(context, uri)
+                if (compressedBase64 != null) {
+                    onCustomUriChanged(compressedBase64)
+                } else {
+                    val file = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        java.io.FileOutputStream(file).use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                    onCustomUriChanged(Uri.fromFile(file).toString())
                 }
-                onCustomUriChanged(Uri.fromFile(file).toString())
             } catch (e: Exception) {
                 onCustomUriChanged(uri.toString())
             }

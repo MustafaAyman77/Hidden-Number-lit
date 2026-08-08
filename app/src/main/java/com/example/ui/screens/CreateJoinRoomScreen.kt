@@ -359,10 +359,11 @@ fun CreateJoinRoomScreen(
                     )
                 }
 
+                val cleanInput = inputRoomCode.trim()
                 val isInputValid = if (mode == GameMode.LOCAL_WIFI) {
-                    inputRoomCode.length >= 7 && inputRoomCode.contains(".")
+                    cleanInput.length >= 7 && cleanInput.contains(".")
                 } else {
-                    inputRoomCode.length == 6
+                    cleanInput.length >= 4
                 }
 
                 CyberButton(

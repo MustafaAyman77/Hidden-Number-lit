@@ -405,8 +405,9 @@ fun ProfileRegistrationScreen(
                         )
                         showSavedMessage = true
                         coroutineScope.launch {
-                            delay(1800)
+                            delay(1000)
                             showSavedMessage = false
+                            viewModel.navigateTo(AppScreen.HOME)
                         }
                     },
                     primaryColor = NeonEmerald,
