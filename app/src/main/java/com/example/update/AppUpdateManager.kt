@@ -29,6 +29,65 @@ import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
 
+// ============================================================
+// تعريفات مساعدة (يجب أن تكون موجودة في المشروع)
+// ============================================================
+
+/** إعدادات التحديث */
+object UpdateConfig {
+    const val GITHUB_REPOSITORY = "your-username/your-repo"   // غيّر إلى المستودع الخاص بك
+    const val APK_EXTENSION = ".apk"
+    const val CONNECT_TIMEOUT = 15000
+    const val READ_TIMEOUT = 15000
+    const val MAX_REDIRECTS = 5
+}
+
+/** بيانات الإصدار المسترجعة من GitHub */
+data class UpdateManifest(
+    val versionCode: Int,
+    val versionName: String,
+    val apkUrl: String,
+    val size: String,          // نص منسق مثل "12.5 MB"
+    val releaseNotes: List<String>,
+    val mandatory: Boolean,
+    val sha256: String?        // اختياري
+)
+
+/** حالات واجهة المستخدم الخاصة بالتحديث */
+sealed class UpdateUIState {
+    object Idle : UpdateUIState()
+    object Checking : UpdateUIState()
+
+    data class Available(
+        val manifest: UpdateManifest,
+        val isWifi: Boolean,
+        val currentVersionName: String,
+        val currentVersionCode: Long
+    ) : UpdateUIState()
+
+    data class Downloading(
+        val manifest: UpdateManifest,
+        val progressPercent: Int,
+        val downloadedFormatted: String,
+        val totalFormatted: String
+    ) : UpdateUIState()
+
+    data class ReadyToInstall(
+        val manifest: UpdateManifest,
+        val apkFilePath: String
+    ) : UpdateUIState()
+
+    data class Error(
+        val manifest: UpdateManifest?,
+        val messageAr: String,
+        val messageEn: String
+    ) : UpdateUIState()
+}
+
+// ============================================================
+// المدير الرئيسي
+// ============================================================
+
 /**
  * مدير التحديثات للتطبيق.
  * يقوم بالتحقق من وجود إصدارات جديدة على GitHub، وتنزيلها وتثبيتها.
@@ -288,7 +347,6 @@ class AppUpdateManager(
                     )
                     settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(settingsIntent)
-                    // لا نغير الحالة هنا لأننا ننتظر عودة المستخدم من الإعدادات
                     return
                 }
             }
@@ -306,8 +364,6 @@ class AppUpdateManager(
             }
 
             context.startActivity(installIntent)
-
-            // بعد بدء التثبيت، نعيد الحالة إلى Idle لأن التطبيق سيغلق أو ينتقل للخلفية
             _updateState.value = UpdateUIState.Idle
 
         } catch (e: Exception) {
@@ -363,8 +419,8 @@ class AppUpdateManager(
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                // نستخدم isActive للتحقق من عدم إلغاء السياق
-                if (!scope.coroutineContext.isActive) return
+                // نتحقق من أن السياق لا يزال نشطاً
+                if (!scope.coroutineContext[Job]?.isActive ?: false) return
                 scope.launch {
                     delay(1500)
                     if (!isActive) return@launch
@@ -386,7 +442,7 @@ class AppUpdateManager(
                         capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
                 if (wifi && !lastWifiState) {
                     lastWifiState = true
-                    if (!scope.coroutineContext.isActive) return
+                    if (!scope.coroutineContext[Job]?.isActive ?: false) return
                     scope.launch {
                         delay(1500)
                         if (!isActive) return@launch
@@ -494,7 +550,7 @@ class AppUpdateManager(
 
             val response = connection.responseCode
             if (response == HttpURLConnection.HTTP_OK) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
+                connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 Log.w(TAG, "GitHub HTTP response: $response")
                 null
@@ -580,7 +636,6 @@ class AppUpdateManager(
     }
 
     private fun isUpdateAvailable(manifest: UpdateManifest, currentVersionCode: Long, currentVersionName: String): Boolean {
-        // نفضل مقارنة الأجزاء أولاً، ثم نستخدم versionCode كاحتياط
         if (manifest.versionCode > currentVersionCode) return true
         return isSemverNewer(manifest.versionName, currentVersionName)
     }
@@ -608,10 +663,6 @@ class AppUpdateManager(
             .mapNotNull { it.toIntOrNull() }
     }
 
-    /**
-     * تحويل اسم الإصدار (مثل 1.2.3) إلى رقم صحيح للمقارنة السريعة.
-     * نضرب الأجزاء بقيم كبيرة لتجنب التصادم (بافتراض أن كل جزء <= 999).
-     */
     private fun versionNameToVersionCode(version: String): Int {
         val parts = parseVersion(version)
         if (parts.isEmpty()) return 0
@@ -620,7 +671,6 @@ class AppUpdateManager(
         val minor = parts.getOrElse(1) { 0 }
         val patch = parts.getOrElse(2) { 0 }
 
-        // نسمح حتى 999 لكل جزء
         return major * 1_000_000 + minor * 1_000 + patch
     }
 
