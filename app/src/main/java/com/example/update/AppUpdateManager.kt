@@ -59,16 +59,11 @@ class AppUpdateManager(
                 val currentVersionCode = getCurrentVersionCode()
                 val currentVersionName = getCurrentVersionName()
 
-                // Fetch update manifest from UPDATE_MANIFEST_URL first, and GitHub Releases API
-                val jsonManifest = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)?.let { parseUpdateManifest(it) }
+                // Fetch update manifest from GitHub Releases API first, and fallback to UPDATE_MANIFEST_URL
                 val ghManifest = fetchGitHubReleaseManifest("mustafaymanborayk/hidden-number-game")
+                val jsonManifest = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)?.let { parseUpdateManifest(it) }
 
-                var manifest: UpdateManifest? = jsonManifest
-                if (ghManifest != null) {
-                    if (manifest == null || ghManifest.versionCode > manifest.versionCode || isSemverNewer(ghManifest.versionName, manifest.versionName)) {
-                        manifest = ghManifest
-                    }
-                }
+                val manifest: UpdateManifest? = ghManifest ?: jsonManifest
 
                 if (manifest == null) {
                     Log.d("AppUpdateManager", "No release or manifest found.")
@@ -85,7 +80,7 @@ class AppUpdateManager(
                 }
 
                 val isWifi = isWifiConnected()
-                val isNewer = (manifest.versionCode > currentVersionCode) || isSemverNewer(manifest.versionName, currentVersionName)
+                val isNewer = isUpdateAvailable(manifest, currentVersionCode, currentVersionName)
 
                 if (isNewer) {
                     // Check if user skipped this version (if optional)
@@ -362,6 +357,33 @@ class AppUpdateManager(
         } catch (e: Exception) {
             "1.0.0"
         }
+    }
+
+    private fun isUpdateAvailable(
+        manifest: UpdateManifest,
+        currentVersionCode: Long,
+        currentVersionName: String
+    ): Boolean {
+        val cleanNew = manifest.versionName.trim().removePrefix("v").removePrefix("V")
+        val cleanCurrent = currentVersionName.trim().removePrefix("v").removePrefix("V")
+
+        // If versions are identical, no update needed
+        if (cleanNew.equals(cleanCurrent, ignoreCase = true)) {
+            return false
+        }
+
+        // If installed app is on legacy template version "1.1.0" or "1.0.0" and GitHub has a release tag like "1.0.34"
+        if ((cleanCurrent == "1.1.0" || cleanCurrent == "1.0.0") && cleanNew != cleanCurrent) {
+            return true
+        }
+
+        // Compare versionCode if manifest versionCode is higher
+        if (manifest.versionCode > currentVersionCode) {
+            return true
+        }
+
+        // Semver comparison
+        return isSemverNewer(cleanNew, cleanCurrent)
     }
 
     private fun isSemverNewer(newVersion: String, currentVersion: String): Boolean {

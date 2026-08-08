@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.hiddennumber.game"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0.0"
+    versionCode = 10031
+    versionName = "1.0.31"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
