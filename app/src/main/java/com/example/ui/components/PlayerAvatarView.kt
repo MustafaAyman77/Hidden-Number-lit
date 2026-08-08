@@ -32,6 +32,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,6 +98,7 @@ fun PlayerAvatarView(
 ) {
     val character = getAvatarCharacter(avatarId)
     val context = LocalContext.current
+    var isImageError by remember(customUri) { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -112,7 +117,7 @@ fun PlayerAvatarView(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (!customUri.isNullOrEmpty()) {
+        if (!customUri.isNullOrEmpty() && !isImageError) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(customUri)
@@ -120,6 +125,7 @@ fun PlayerAvatarView(
                     .build(),
                 contentDescription = "Custom Profile Picture",
                 contentScale = ContentScale.Crop,
+                onError = { isImageError = true },
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
@@ -142,11 +148,22 @@ fun AvatarSelectionGrid(
     onCustomUriChanged: (String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            onCustomUriChanged(uri.toString())
+            try {
+                val file = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    java.io.FileOutputStream(file).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                onCustomUriChanged(Uri.fromFile(file).toString())
+            } catch (e: Exception) {
+                onCustomUriChanged(uri.toString())
+            }
         }
     }
 

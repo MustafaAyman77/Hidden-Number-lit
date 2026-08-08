@@ -87,7 +87,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val savedAvatarId = prefs.getInt("avatarId", 1)
         val savedCustomUri = prefs.getString("avatarCustomUri", null)
         val savedLevel = prefs.getInt("level", 1)
-        val savedXp = prefs.getInt("xp", 150)
+        val savedXp = prefs.getInt("xp", 0)
         val savedWins = prefs.getInt("wins", 0)
         val savedLosses = prefs.getInt("losses", 0)
         val savedTotal = prefs.getInt("totalGames", 0)
@@ -160,7 +160,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isMyTurn = MutableStateFlow(true)
     val isMyTurn: StateFlow<Boolean> = _isMyTurn.asStateFlow()
 
-    private val _turnTimerSeconds = MutableStateFlow(30)
+    private val _turnTimerSeconds = MutableStateFlow(60)
     val turnTimerSeconds: StateFlow<Int> = _turnTimerSeconds.asStateFlow()
 
     private val _currentInput = MutableStateFlow("")
@@ -215,10 +215,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (_isHost.value) {
                             broadcastRoomState()
                         } else {
+                            val payload = createJoinPayload()
                             if (_selectedMode.value == GameMode.ONLINE_ROOM) {
-                                onlineNetworkManager.sendMessage("JOIN", me.id, me.username, me.avatarId.toString())
+                                onlineNetworkManager.sendMessage("JOIN", me.id, me.username, payload)
                             } else if (_selectedMode.value == GameMode.LOCAL_WIFI) {
-                                localWifiNetworkManager.sendMessage("JOIN", me.id, me.username, me.avatarId.toString())
+                                localWifiNetworkManager.sendMessage("JOIN", me.id, me.username, payload)
                             }
                         }
 
@@ -495,6 +496,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         _playerProfile.value = updated
         saveProfileToPrefs(updated)
+        syncProfileToRoomPlayers(updated)
         soundManager.playClick()
     }
 
@@ -506,7 +508,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         _playerProfile.value = updated
         saveProfileToPrefs(updated)
+        syncProfileToRoomPlayers(updated)
         soundManager.playClick()
+    }
+
+    private fun syncProfileToRoomPlayers(updated: PlayerProfile) {
+        if (_roomPlayers.value.isNotEmpty()) {
+            _roomPlayers.value = _roomPlayers.value.map {
+                if (it.id == updated.id) {
+                    it.copy(
+                        name = updated.username,
+                        avatarId = updated.avatarId,
+                        avatarCustomUri = updated.avatarCustomUri,
+                        level = updated.level
+                    )
+                } else it
+            }
+            if (_isHost.value) {
+                broadcastRoomState()
+            } else {
+                val payload = createJoinPayload()
+                if (_selectedMode.value == GameMode.ONLINE_ROOM) {
+                    onlineNetworkManager.sendMessage("JOIN", updated.id, updated.username, payload)
+                } else if (_selectedMode.value == GameMode.LOCAL_WIFI) {
+                    localWifiNetworkManager.sendMessage("JOIN", updated.id, updated.username, payload)
+                }
+            }
+        }
     }
 
     fun selectGameMode(mode: GameMode) {
@@ -936,7 +964,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startTurnTimer() {
         timerJob?.cancel()
-        _turnTimerSeconds.value = 90
+        _turnTimerSeconds.value = 60
         timerJob = viewModelScope.launch {
             while (_turnTimerSeconds.value > 0) {
                 delay(1000)
