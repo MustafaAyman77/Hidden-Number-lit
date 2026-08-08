@@ -35,7 +35,7 @@ import java.util.Locale
 
 /** إعدادات التحديث */
 object UpdateConfig {
-    const val GITHUB_REPOSITORY = "your-username/your-repo"   // غيّر إلى المستودع الخاص بك
+    const val GITHUB_REPOSITORY = "MustafaAyman77/Hidden-Number-lit"   // غيّر إلى المستودع الخاص بك
     const val APK_EXTENSION = ".apk"
     const val CONNECT_TIMEOUT = 15000
     const val READ_TIMEOUT = 15000
