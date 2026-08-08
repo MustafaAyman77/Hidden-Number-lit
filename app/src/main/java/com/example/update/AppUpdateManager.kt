@@ -59,16 +59,19 @@ class AppUpdateManager(
                 val currentVersionCode = getCurrentVersionCode()
                 val currentVersionName = getCurrentVersionName()
 
-                // Fetch update manifest from UPDATE_MANIFEST_URL first, or fallback to GitHub Releases API
-                var manifest = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)?.let { parseUpdateManifest(it) }
+                // Fetch update manifest from UPDATE_MANIFEST_URL first, and GitHub Releases API
+                val jsonManifest = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)?.let { parseUpdateManifest(it) }
+                val ghManifest = fetchGitHubReleaseManifest("mustafaymanborayk/hidden-number-game")
 
-                if (manifest == null) {
-                    Log.d("AppUpdateManager", "Manifest URL null/failed. Trying GitHub Releases API...")
-                    manifest = fetchGitHubReleaseManifest("mustafaymanborayk/hidden-number-game")
+                var manifest: UpdateManifest? = jsonManifest
+                if (ghManifest != null) {
+                    if (manifest == null || ghManifest.versionCode > manifest.versionCode || isSemverNewer(ghManifest.versionName, manifest.versionName)) {
+                        manifest = ghManifest
+                    }
                 }
 
                 if (manifest == null) {
-                    Log.d("AppUpdateManager", "No release or APK found on GitHub.")
+                    Log.d("AppUpdateManager", "No release or manifest found.")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
@@ -82,9 +85,9 @@ class AppUpdateManager(
                 }
 
                 val isWifi = isWifiConnected()
+                val isNewer = (manifest.versionCode > currentVersionCode) || isSemverNewer(manifest.versionName, currentVersionName)
 
-                // Check version comparison
-                if (manifest.versionCode > currentVersionCode) {
+                if (isNewer) {
                     // Check if user skipped this version (if optional)
                     if (!manifest.mandatory && manifest.versionCode.toLong() == skippedVersionCode && !manualTrigger) {
                         Log.d("AppUpdateManager", "User skipped version ${manifest.versionCode}")
@@ -99,7 +102,7 @@ class AppUpdateManager(
                         currentVersionCode = currentVersionCode
                     )
                 } else {
-                    Log.d("AppUpdateManager", "App is up to date ($currentVersionName - $currentVersionCode).")
+                    Log.d("AppUpdateManager", "App is up to date ($currentVersionName vs ${manifest.versionName}).")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
@@ -149,18 +152,48 @@ class AppUpdateManager(
                 apkFile = File(destinationDir, "game_v${manifest.versionCode}.apk")
                 if (apkFile.exists()) apkFile.delete()
 
-                val url = URL(manifest.apkUrl)
-                urlConnection = url.openConnection() as HttpURLConnection
-                urlConnection.connectTimeout = 15000
-                urlConnection.readTimeout = 30000
-                urlConnection.requestMethod = "GET"
-                urlConnection.connect()
+                var currentDownloadUrl = manifest.apkUrl
+                var redirectCount = 0
+                var connectionSuccess = false
 
-                if (urlConnection.responseCode != HttpURLConnection.HTTP_OK) {
+                while (redirectCount < 10) {
+                    val url = URL(currentDownloadUrl)
+                    urlConnection = url.openConnection() as HttpURLConnection
+                    urlConnection.connectTimeout = 15000
+                    urlConnection.readTimeout = 30000
+                    urlConnection.instanceFollowRedirects = true
+                    urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AppUpdateChecker)")
+                    urlConnection.requestMethod = "GET"
+                    urlConnection.connect()
+
+                    val status = urlConnection.responseCode
+                    if (status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                        status == HttpURLConnection.HTTP_MOVED_PERM ||
+                        status == HttpURLConnection.HTTP_SEE_OTHER ||
+                        status == 307 || status == 308) {
+                        val location = urlConnection.getHeaderField("Location")
+                        if (!location.isNullOrEmpty()) {
+                            currentDownloadUrl = location
+                            urlConnection.disconnect()
+                            redirectCount++
+                            continue
+                        }
+                    }
+
+                    if (status == HttpURLConnection.HTTP_OK) {
+                        connectionSuccess = true
+                        break
+                    } else {
+                        break
+                    }
+                }
+
+                if (!connectionSuccess || urlConnection == null || urlConnection.responseCode != HttpURLConnection.HTTP_OK) {
+                    val code = urlConnection?.responseCode ?: -1
                     _updateState.value = UpdateUIState.Error(
                         manifest = manifest,
-                        messageAr = "فشل تنزيل التحديث من السيرفر (رمز الخطأ: ${urlConnection.responseCode}).",
-                        messageEn = "Failed to download update (HTTP ${urlConnection.responseCode})."
+                        messageAr = "فشل تنزيل التحديث من السيرفر (رمز الخطأ: $code).",
+                        messageEn = "Failed to download update (HTTP $code)."
                     )
                     return@launch
                 }
@@ -331,31 +364,70 @@ class AppUpdateManager(
         }
     }
 
-    private fun fetchManifestJson(urlString: String): String? {
-        var urlConnection: HttpURLConnection? = null
-        return try {
-            val url = URL(urlString)
-            urlConnection = url.openConnection() as HttpURLConnection
-            urlConnection.connectTimeout = 10000
-            urlConnection.readTimeout = 10000
-            urlConnection.instanceFollowRedirects = true
-            urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AppUpdateChecker)")
-            urlConnection.setRequestProperty("Accept", "application/json, text/plain, */*")
-            urlConnection.requestMethod = "GET"
-            urlConnection.connect()
+    private fun isSemverNewer(newVersion: String, currentVersion: String): Boolean {
+        val cleanNew = newVersion.trim().removePrefix("v").removePrefix("V").takeWhile { it.isDigit() || it == '.' }
+        val cleanCurrent = currentVersion.trim().removePrefix("v").removePrefix("V").takeWhile { it.isDigit() || it == '.' }
 
-            if (urlConnection.responseCode == HttpURLConnection.HTTP_OK) {
-                urlConnection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                Log.w("AppUpdateManager", "Manifest fetch HTTP status: ${urlConnection.responseCode}")
-                null
-            }
-        } catch (e: Exception) {
-            Log.e("AppUpdateManager", "Manifest fetch exception: ${e.message}")
-            null
-        } finally {
-            urlConnection?.disconnect()
+        if (cleanNew.isEmpty() || cleanCurrent.isEmpty()) return false
+
+        val newParts = cleanNew.split(".").map { it.toIntOrNull() ?: 0 }
+        val currentParts = cleanCurrent.split(".").map { it.toIntOrNull() ?: 0 }
+
+        val maxLength = maxOf(newParts.size, currentParts.size)
+        for (i in 0 until maxLength) {
+            val newPart = newParts.getOrElse(i) { 0 }
+            val currentPart = currentParts.getOrElse(i) { 0 }
+            if (newPart > currentPart) return true
+            if (newPart < currentPart) return false
         }
+        return false
+    }
+
+    private fun fetchManifestJson(urlString: String): String? {
+        var currentUrl = urlString
+        var redirectCount = 0
+        var urlConnection: HttpURLConnection? = null
+
+        while (redirectCount < 10) {
+            try {
+                val url = URL(currentUrl)
+                urlConnection = url.openConnection() as HttpURLConnection
+                urlConnection.connectTimeout = 10000
+                urlConnection.readTimeout = 10000
+                urlConnection.instanceFollowRedirects = true
+                urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AppUpdateChecker)")
+                urlConnection.setRequestProperty("Accept", "application/json, text/plain, */*")
+                urlConnection.requestMethod = "GET"
+                urlConnection.connect()
+
+                val status = urlConnection.responseCode
+                if (status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                    status == HttpURLConnection.HTTP_MOVED_PERM ||
+                    status == HttpURLConnection.HTTP_SEE_OTHER ||
+                    status == 307 || status == 308) {
+                    val location = urlConnection.getHeaderField("Location")
+                    if (!location.isNullOrEmpty()) {
+                        currentUrl = location
+                        urlConnection.disconnect()
+                        redirectCount++
+                        continue
+                    }
+                }
+
+                if (status == HttpURLConnection.HTTP_OK) {
+                    return urlConnection.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    Log.w("AppUpdateManager", "Manifest fetch HTTP status: $status")
+                    return null
+                }
+            } catch (e: Exception) {
+                Log.e("AppUpdateManager", "Manifest fetch exception: ${e.message}")
+                return null
+            } finally {
+                urlConnection?.disconnect()
+            }
+        }
+        return null
     }
 
     private fun parseUpdateManifest(jsonString: String): UpdateManifest? {
@@ -397,7 +469,8 @@ class AppUpdateManager(
         val jsonString = fetchManifestJson(apiUrl) ?: return null
         return try {
             val jsonObj = JSONObject(jsonString)
-            val tagName = jsonObj.optString("tag_name", "").removePrefix("v").trim()
+            val rawTag = jsonObj.optString("tag_name", "").trim()
+            val cleanTag = rawTag.removePrefix("v").removePrefix("V").trim()
             val body = jsonObj.optString("body", "")
 
             val assetsArray = jsonObj.optJSONArray("assets") ?: return null
@@ -418,15 +491,21 @@ class AppUpdateManager(
 
             if (apkUrl.isEmpty()) return null
 
-            val parts = tagName.split(".")
-            val vCode = parts.fold(0) { acc, s -> acc * 10 + (s.toIntOrNull() ?: 0) }
-            val versionCode = if (vCode > 0) vCode else 1
+            val numericParts = cleanTag.takeWhile { it.isDigit() || it == '.' }.split(".")
+            val major = numericParts.getOrNull(0)?.toIntOrNull() ?: 1
+            val minor = numericParts.getOrNull(1)?.toIntOrNull() ?: 0
+            val patch = numericParts.getOrNull(2)?.toIntOrNull() ?: 0
+            val versionCode = major * 10000 + minor * 100 + patch
 
-            val notes = if (body.isNotBlank()) body.split("\n").filter { it.isNotBlank() } else listOf("تحديث جديد متوفر على GitHub Releases")
+            val notes = if (body.isNotBlank()) {
+                body.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+            } else {
+                listOf("تحديث جديد متوفر على GitHub Releases ($cleanTag)")
+            }
 
             UpdateManifest(
                 versionCode = versionCode,
-                versionName = if (tagName.isNotEmpty()) tagName else "1.0.1",
+                versionName = if (cleanTag.isNotEmpty()) cleanTag else "1.0.1",
                 apkUrl = apkUrl,
                 size = apkSize,
                 releaseNotes = notes,
