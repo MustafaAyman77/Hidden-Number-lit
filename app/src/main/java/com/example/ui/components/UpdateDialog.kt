@@ -83,7 +83,7 @@ fun UpdateDialog(
                 .fillMaxWidth()
                 .padding(4.dp),
             borderColor = when (updateState) {
-                is UpdateUIState.Error -> NeonRed
+                is UpdateUIState.Error -> if (updateState.manifest == null) NeonCyan else NeonRed
                 is UpdateUIState.ReadyToInstall -> NeonEmerald
                 else -> NeonCyan
             },
@@ -103,7 +103,7 @@ fun UpdateDialog(
                         .clip(CircleShape)
                         .background(
                             when (updateState) {
-                                is UpdateUIState.Error -> NeonRed.copy(0.2f)
+                                is UpdateUIState.Error -> if (updateState.manifest == null) NeonCyan.copy(0.2f) else NeonRed.copy(0.2f)
                                 is UpdateUIState.ReadyToInstall -> NeonEmerald.copy(0.2f)
                                 else -> NeonCyan.copy(0.2f)
                             }
@@ -111,7 +111,7 @@ fun UpdateDialog(
                         .border(
                             width = 2.dp,
                             color = when (updateState) {
-                                is UpdateUIState.Error -> NeonRed
+                                is UpdateUIState.Error -> if (updateState.manifest == null) NeonCyan else NeonRed
                                 is UpdateUIState.ReadyToInstall -> NeonEmerald
                                 else -> NeonCyan
                             },
@@ -122,13 +122,13 @@ fun UpdateDialog(
                     Icon(
                         imageVector = when (updateState) {
                             is UpdateUIState.ReadyToInstall -> Icons.Default.CheckCircle
-                            is UpdateUIState.Error -> Icons.Default.Warning
+                            is UpdateUIState.Error -> if (updateState.manifest == null) Icons.Default.CheckCircle else Icons.Default.Warning
                             is UpdateUIState.Downloading -> Icons.Default.Download
                             else -> Icons.Default.SystemUpdate
                         },
                         contentDescription = "Update Icon",
                         tint = when (updateState) {
-                            is UpdateUIState.Error -> NeonRed
+                            is UpdateUIState.Error -> if (updateState.manifest == null) NeonCyan else NeonRed
                             is UpdateUIState.ReadyToInstall -> NeonEmerald
                             else -> NeonCyan
                         },
@@ -140,7 +140,11 @@ fun UpdateDialog(
 
                 Text(
                     text = when (updateState) {
-                        is UpdateUIState.Error -> if (languageAr) "تنبيه التحديث" else "Update Notice"
+                        is UpdateUIState.Error -> if (updateState.manifest == null) {
+                            if (languageAr) "حالة التحديثات ℹ️" else "Update Status ℹ️"
+                        } else {
+                            if (languageAr) "تنبيه التحديث" else "Update Notice"
+                        }
                         is UpdateUIState.ReadyToInstall -> if (languageAr) "التحديث جاهز للتثبيت 🚀" else "Update Ready to Install 🚀"
                         is UpdateUIState.Downloading -> if (languageAr) "جاري تنزيل التحديث..." else "Downloading Update..."
                         else -> if (languageAr) "🆕 تحديث جديد متوفر" else "🆕 New Update Available"
@@ -371,9 +375,9 @@ fun UpdateDialog(
                         Spacer(modifier = Modifier.height(20.dp))
 
                         CyberButton(
-                            text = if (languageAr) "إغلاق" else "Close",
+                            text = if (languageAr) "موافق" else "OK",
                             onClick = onDismissClick,
-                            primaryColor = NeonRed,
+                            primaryColor = if (updateState.manifest == null) NeonCyan else NeonRed,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

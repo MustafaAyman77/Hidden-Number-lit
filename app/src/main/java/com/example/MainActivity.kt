@@ -13,6 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -23,9 +26,11 @@ import com.example.ui.screens.GameplayScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LobbyScreen
+import com.example.ui.screens.ProfileRegistrationScreen
 import com.example.ui.screens.ResultsScreen
 import com.example.ui.screens.SecretSetupScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -37,6 +42,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
+            var showSplash by remember { mutableStateOf(true) }
             val currentScreen by viewModel.currentScreen.collectAsState()
             val languageAr by viewModel.languageAr.collectAsState()
             val profile by viewModel.playerProfile.collectAsState()
@@ -72,118 +78,126 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
-                            if (appError != null) {
-                                com.example.ui.components.ErrorDialog(
-                                    error = appError!!,
+                            if (showSplash) {
+                                SplashScreen(
                                     languageAr = languageAr,
-                                    onDismiss = { viewModel.clearAppError() }
+                                    onSplashFinished = { showSplash = false }
                                 )
-                            }
-
-                            com.example.ui.components.UpdateDialog(
-                                updateState = updateState,
-                                languageAr = languageAr,
-                                onUpdateClick = {
-                                    (updateState as? com.example.update.UpdateUIState.Available)?.let {
-                                        viewModel.downloadAndInstallUpdate(it.manifest)
-                                    }
-                                },
-                                onInstallClick = { filePath ->
-                                    viewModel.installApk(filePath)
-                                },
-                                onDismissClick = {
-                                    (updateState as? com.example.update.UpdateUIState.Available)?.let {
-                                        viewModel.skipUpdate(it.manifest.versionCode.toLong())
-                                    } ?: viewModel.dismissUpdateUi()
-                                }
-                            )
-                            when (currentScreen) {
-                                AppScreen.HOME -> {
-                                    HomeScreen(
-                                        viewModel = viewModel,
-                                        profile = profile,
-                                        languageAr = languageAr
-                                    )
-                                }
-                                AppScreen.CREATE_JOIN -> {
-                                    CreateJoinRoomScreen(
-                                        viewModel = viewModel,
-                                        mode = selectedMode,
-                                        roomCode = roomCode,
-                                        languageAr = languageAr
-                                    )
-                                }
-                                AppScreen.LOBBY -> {
-                                    LobbyScreen(
-                                        viewModel = viewModel,
-                                        mode = selectedMode,
-                                        selectedType = selectedType,
-                                        selectedDifficulty = selectedDifficulty,
-                                        roomCode = roomCode,
-                                        players = roomPlayers,
-                                        isHost = isHost,
-                                        mySecret = mySecret,
-                                        languageAr = languageAr
-                                    )
-                                }
-                                AppScreen.SECRET_SETUP -> {
-                                    val codeLength by viewModel.codeLength.collectAsState()
-                                    val allowRepetition by viewModel.allowRepetition.collectAsState()
-                                    SecretSetupScreen(
-                                        viewModel = viewModel,
-                                        codeLength = codeLength,
-                                        allowRepetition = allowRepetition,
-                                        mySecret = mySecret,
-                                        mode = selectedMode,
-                                        languageAr = languageAr
-                                    )
-                                }
-                                AppScreen.GAMEPLAY -> {
-                                    GameplayScreen(
-                                        viewModel = viewModel,
-                                        isMyTurn = isMyTurn,
-                                        turnTimerSeconds = timerSeconds,
-                                        currentInput = currentInput,
-                                        myAttempts = myAttempts,
-                                        opponentAttempts = opponentAttempts,
-                                        mySecret = mySecret,
-                                        gameType = selectedType,
+                            } else {
+                                if (appError != null) {
+                                    com.example.ui.components.ErrorDialog(
+                                        error = appError!!,
                                         languageAr = languageAr,
-                                        isMuted = isMuted,
-                                        isSpeakerMuted = isSpeakerMuted,
-                                        audioLevel = audioLevel,
-                                        lastReactionEmoji = lastEmoji
+                                        onDismiss = { viewModel.clearAppError() }
                                     )
                                 }
-                                AppScreen.RESULTS -> {
-                                    ResultsScreen(
-                                        viewModel = viewModel,
-                                        isWinner = isWinner,
-                                        winnerName = winnerName,
-                                        attemptsCount = myAttempts.size,
-                                        mySecret = mySecret,
-                                        opponentSecret = opponentSecret,
-                                        languageAr = languageAr
-                                    )
-                                }
-                                AppScreen.SETTINGS -> {
-                                    SettingsScreen(
-                                        viewModel = viewModel,
-                                        languageAr = languageAr
-                                    )
-                                }
-                                AppScreen.HISTORY -> {
-                                    HistoryScreen(
-                                        viewModel = viewModel,
-                                        languageAr = languageAr
-                                    )
-                                }
-                                AppScreen.PROFILE -> {
-                                    com.example.ui.screens.ProfileRegistrationScreen(
-                                        viewModel = viewModel,
-                                        profile = profile,
-                                        languageAr = languageAr
-                                    )
+
+                                com.example.ui.components.UpdateDialog(
+                                    updateState = updateState,
+                                    languageAr = languageAr,
+                                    onUpdateClick = {
+                                        (updateState as? com.example.update.UpdateUIState.Available)?.let {
+                                            viewModel.downloadAndInstallUpdate(it.manifest)
+                                        }
+                                    },
+                                    onInstallClick = { filePath ->
+                                        viewModel.installApk(filePath)
+                                    },
+                                    onDismissClick = {
+                                        (updateState as? com.example.update.UpdateUIState.Available)?.let {
+                                            viewModel.skipUpdate(it.manifest.versionCode.toLong())
+                                        } ?: viewModel.dismissUpdateUi()
+                                    }
+                                )
+
+                                when (currentScreen) {
+                                    AppScreen.HOME -> {
+                                        HomeScreen(
+                                            viewModel = viewModel,
+                                            profile = profile,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.CREATE_JOIN -> {
+                                        CreateJoinRoomScreen(
+                                            viewModel = viewModel,
+                                            mode = selectedMode,
+                                            roomCode = roomCode,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.LOBBY -> {
+                                        LobbyScreen(
+                                            viewModel = viewModel,
+                                            mode = selectedMode,
+                                            selectedType = selectedType,
+                                            selectedDifficulty = selectedDifficulty,
+                                            roomCode = roomCode,
+                                            players = roomPlayers,
+                                            isHost = isHost,
+                                            mySecret = mySecret,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.SECRET_SETUP -> {
+                                        val codeLength by viewModel.codeLength.collectAsState()
+                                        val allowRepetition by viewModel.allowRepetition.collectAsState()
+                                        SecretSetupScreen(
+                                            viewModel = viewModel,
+                                            codeLength = codeLength,
+                                            allowRepetition = allowRepetition,
+                                            mySecret = mySecret,
+                                            mode = selectedMode,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.GAMEPLAY -> {
+                                        GameplayScreen(
+                                            viewModel = viewModel,
+                                            isMyTurn = isMyTurn,
+                                            turnTimerSeconds = timerSeconds,
+                                            currentInput = currentInput,
+                                            myAttempts = myAttempts,
+                                            opponentAttempts = opponentAttempts,
+                                            mySecret = mySecret,
+                                            gameType = selectedType,
+                                            languageAr = languageAr,
+                                            isMuted = isMuted,
+                                            isSpeakerMuted = isSpeakerMuted,
+                                            audioLevel = audioLevel,
+                                            lastReactionEmoji = lastEmoji
+                                        )
+                                    }
+                                    AppScreen.RESULTS -> {
+                                        ResultsScreen(
+                                            viewModel = viewModel,
+                                            isWinner = isWinner,
+                                            winnerName = winnerName,
+                                            attemptsCount = myAttempts.size,
+                                            mySecret = mySecret,
+                                            opponentSecret = opponentSecret,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.SETTINGS -> {
+                                        SettingsScreen(
+                                            viewModel = viewModel,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.HISTORY -> {
+                                        HistoryScreen(
+                                            viewModel = viewModel,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.PROFILE -> {
+                                        ProfileRegistrationScreen(
+                                            viewModel = viewModel,
+                                            profile = profile,
+                                            languageAr = languageAr
+                                        )
+                                    }
                                 }
                             }
                         }

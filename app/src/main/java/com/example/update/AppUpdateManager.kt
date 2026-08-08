@@ -55,22 +55,23 @@ class AppUpdateManager(
                 val currentVersionCode = getCurrentVersionCode()
                 val currentVersionName = getCurrentVersionName()
 
-                // Fetch update manifest from UPDATE_MANIFEST_URL
-                val jsonString = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)
-                if (jsonString.isNullOrEmpty()) {
-                    Log.d("AppUpdateManager", "Failed to fetch or empty update manifest.")
+                // Fetch update manifest from UPDATE_MANIFEST_URL first, or fallback to GitHub Releases API
+                var manifest = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)?.let { parseUpdateManifest(it) }
+
+                if (manifest == null) {
+                    Log.d("AppUpdateManager", "Manifest URL null/failed. Trying GitHub Releases API...")
+                    manifest = fetchGitHubReleaseManifest("mustafaymanborayk/hidden-number-game")
+                }
+
+                if (manifest == null) {
+                    Log.d("AppUpdateManager", "No release or APK found on GitHub.")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
-                            messageAr = "تعذر الاتصال بسيرفر التحديثات.",
-                            messageEn = "Could not connect to update server."
+                            messageAr = "أنت تستخدم أحدث إصدار بالفعل ($currentVersionName). لم يتم رفع ملف APK للتحديث في قسم Releases على GitHub بعد.",
+                            messageEn = "You are using the latest version ($currentVersionName). No update APK published on GitHub Releases yet."
                         )
                     }
-                    return@launch
-                }
-
-                val manifest = parseUpdateManifest(jsonString) ?: run {
-                    Log.d("AppUpdateManager", "Invalid JSON update manifest.")
                     return@launch
                 }
 
@@ -317,17 +318,22 @@ class AppUpdateManager(
         return try {
             val url = URL(urlString)
             urlConnection = url.openConnection() as HttpURLConnection
-            urlConnection.connectTimeout = 8000
-            urlConnection.readTimeout = 8000
+            urlConnection.connectTimeout = 10000
+            urlConnection.readTimeout = 10000
+            urlConnection.instanceFollowRedirects = true
+            urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AppUpdateChecker)")
+            urlConnection.setRequestProperty("Accept", "application/json, text/plain, */*")
             urlConnection.requestMethod = "GET"
             urlConnection.connect()
 
             if (urlConnection.responseCode == HttpURLConnection.HTTP_OK) {
                 urlConnection.inputStream.bufferedReader().use { it.readText() }
             } else {
+                Log.w("AppUpdateManager", "Manifest fetch HTTP status: ${urlConnection.responseCode}")
                 null
             }
         } catch (e: Exception) {
+            Log.e("AppUpdateManager", "Manifest fetch exception: ${e.message}")
             null
         } finally {
             urlConnection?.disconnect()
@@ -364,6 +370,52 @@ class AppUpdateManager(
                 sha256 = sha256
             )
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun fetchGitHubReleaseManifest(repoOwnerAndName: String): UpdateManifest? {
+        val apiUrl = "https://api.github.com/repos/$repoOwnerAndName/releases/latest"
+        val jsonString = fetchManifestJson(apiUrl) ?: return null
+        return try {
+            val jsonObj = JSONObject(jsonString)
+            val tagName = jsonObj.optString("tag_name", "").removePrefix("v").trim()
+            val body = jsonObj.optString("body", "")
+
+            val assetsArray = jsonObj.optJSONArray("assets") ?: return null
+            var apkUrl = ""
+            var apkSize = ""
+            for (i in 0 until assetsArray.length()) {
+                val asset = assetsArray.getJSONObject(i)
+                val assetName = asset.optString("name", "")
+                if (assetName.endsWith(".apk", ignoreCase = true)) {
+                    apkUrl = asset.optString("browser_download_url", "")
+                    val bytes = asset.optLong("size", 0L)
+                    if (bytes > 0) {
+                        apkSize = String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f))
+                    }
+                    break
+                }
+            }
+
+            if (apkUrl.isEmpty()) return null
+
+            val parts = tagName.split(".")
+            val vCode = parts.fold(0) { acc, s -> acc * 10 + (s.toIntOrNull() ?: 0) }
+            val versionCode = if (vCode > 0) vCode else 1
+
+            val notes = if (body.isNotBlank()) body.split("\n").filter { it.isNotBlank() } else listOf("تحديث جديد متوفر على GitHub Releases")
+
+            UpdateManifest(
+                versionCode = versionCode,
+                versionName = if (tagName.isNotEmpty()) tagName else "1.0.1",
+                apkUrl = apkUrl,
+                size = apkSize,
+                releaseNotes = notes,
+                mandatory = false
+            )
+        } catch (e: Exception) {
+            Log.e("AppUpdateManager", "Failed to parse GitHub release JSON: ${e.message}")
             null
         }
     }
