@@ -55,6 +55,7 @@ import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
 import com.example.ui.components.CyberButton
 import com.example.ui.components.GlassCard
+import com.example.ui.components.PlayerAvatarView
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkSurfaceGlass
 import com.example.ui.theme.GlassBorder
@@ -142,7 +143,9 @@ fun HomeScreen(
 
         // Profile & XP Card
         GlassCard(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { viewModel.navigateTo(AppScreen.PROFILE) },
             glowEffect = true
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -155,19 +158,12 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(NeonMagenta.copy(0.2f))
-                                .border(2.dp, NeonMagenta, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = avatarEmoji(profile.avatarId),
-                                fontSize = 28.sp
-                            )
-                        }
+                        PlayerAvatarView(
+                            avatarId = profile.avatarId,
+                            customUri = profile.avatarCustomUri,
+                            size = 56.dp,
+                            borderColor = NeonMagenta
+                        )
 
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -178,7 +174,7 @@ fun HomeScreen(
                                     color = TextPrimary
                                 )
                                 IconButton(
-                                    onClick = { showEditProfileDialog = true },
+                                    onClick = { viewModel.navigateTo(AppScreen.PROFILE) },
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Icon(

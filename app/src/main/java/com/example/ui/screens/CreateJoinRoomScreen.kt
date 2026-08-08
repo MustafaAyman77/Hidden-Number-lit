@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +67,17 @@ fun CreateJoinRoomScreen(
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
-    var inputRoomCode by remember { mutableStateOf("") }
+    var detectedIp by remember { mutableStateOf(if (mode == GameMode.LOCAL_WIFI) viewModel.getDetectedHostIp() else "") }
+    var inputRoomCode by remember { mutableStateOf(if (mode == GameMode.LOCAL_WIFI) viewModel.getDetectedHostIp() else "") }
     var joinError by remember { mutableStateOf<String?>(null) }
+    var isSearchingLocalHost by remember { mutableStateOf(false) }
+
+    LaunchedEffect(mode) {
+        if (mode == GameMode.LOCAL_WIFI) {
+            detectedIp = viewModel.getDetectedHostIp()
+            inputRoomCode = detectedIp
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -254,15 +264,44 @@ fun CreateJoinRoomScreen(
                 }
 
                 if (mode == GameMode.LOCAL_WIFI) {
-                    // Quick Preset Button for Default Hotspot IP (192.168.43.1)
+                    // Auto-Discover Local Host Button
                     CyberButton(
-                        text = if (languageAr) "⚡ تعبئة IP الهوتسبوت الافتراضي (192.168.43.1)" else "⚡ Auto-fill Default Hotspot IP (192.168.43.1)",
+                        text = if (isSearchingLocalHost) {
+                            if (languageAr) "🔍 جاري البحث الآلي عن الغرفة..." else "🔍 Searching for local room..."
+                        } else {
+                            if (languageAr) "🔍 اكتشاف آلي وانضمام تلقائي للغرفة ⚡" else "🔍 Auto Discover & Connect Local Room ⚡"
+                        },
                         onClick = {
-                            inputRoomCode = "192.168.43.1"
+                            isSearchingLocalHost = true
+                            joinError = null
+                            viewModel.autoDiscoverAndJoinLocalRoom { success, ip ->
+                                isSearchingLocalHost = false
+                                if (success && ip.isNotEmpty()) {
+                                    inputRoomCode = ip
+                                    Toast.makeText(
+                                        context,
+                                        if (languageAr) "تم اكتشاف الغرفة والاتصال بها بنجاح ($ip)! ⚡" else "Discovered and connected to room ($ip)! ⚡",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    joinError = if (languageAr) "لم يتم العثور على غرفة مفتوحة تلقائياً. تأكد من ضغط صانع الغرفة على 'إنشاء غرفة' أو ادخل IP يدوياً." else "No local room found. Make sure host tapped 'Create Room' or enter IP manually."
+                                }
+                            }
+                        },
+                        enabled = !isSearchingLocalHost,
+                        modifier = Modifier.fillMaxWidth(),
+                        primaryColor = NeonEmerald
+                    )
+
+                    CyberButton(
+                        text = if (languageAr) "⚡ تعبئة IP المباشر تلقائياً ($detectedIp)" else "⚡ Auto-fill Direct IP ($detectedIp)",
+                        onClick = {
+                            detectedIp = viewModel.getDetectedHostIp()
+                            inputRoomCode = detectedIp
                             joinError = null
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        primaryColor = NeonEmerald
+                        primaryColor = NeonCyan
                     )
                 }
 

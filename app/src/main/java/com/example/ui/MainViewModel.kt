@@ -31,7 +31,7 @@ import org.json.JSONObject
 import kotlin.random.Random
 
 enum class AppScreen {
-    HOME, CREATE_JOIN, LOBBY, SECRET_SETUP, GAMEPLAY, RESULTS, SETTINGS, HISTORY
+    HOME, CREATE_JOIN, LOBBY, SECRET_SETUP, GAMEPLAY, RESULTS, SETTINGS, HISTORY, PROFILE
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -49,6 +49,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val onlineNetworkManager = OnlineNetworkManager(viewModelScope)
     val localWifiNetworkManager = LocalWifiNetworkManager(application, viewModelScope)
     private val aiBotEngine = AiBotEngine()
+
+    // Player Profile Persistence
+    private val prefs = application.getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
 
     // App Error State
     private val _appError = MutableStateFlow<AppError?>(null)
@@ -71,8 +74,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val languageAr: StateFlow<Boolean> = _languageAr.asStateFlow()
 
     // Player Profile
-    private val _playerProfile = MutableStateFlow(PlayerProfile())
+    private val _playerProfile = MutableStateFlow(loadSavedProfile())
     val playerProfile: StateFlow<PlayerProfile> = _playerProfile.asStateFlow()
+
+    private fun loadSavedProfile(): PlayerProfile {
+        val savedName = prefs.getString("username", "اللاعب الأسطوري") ?: "اللاعب الأسطوري"
+        val savedAvatarId = prefs.getInt("avatarId", 1)
+        val savedCustomUri = prefs.getString("avatarCustomUri", null)
+        val savedLevel = prefs.getInt("level", 1)
+        val savedXp = prefs.getInt("xp", 150)
+        val savedWins = prefs.getInt("wins", 0)
+        val savedLosses = prefs.getInt("losses", 0)
+        val savedTotal = prefs.getInt("totalGames", 0)
+
+        return PlayerProfile(
+            username = savedName,
+            avatarId = savedAvatarId,
+            avatarCustomUri = savedCustomUri,
+            level = savedLevel,
+            xp = savedXp,
+            wins = savedWins,
+            losses = savedLosses,
+            totalGames = savedTotal
+        )
+    }
+
+    private fun saveProfileToPrefs(profile: PlayerProfile) {
+        prefs.edit()
+            .putString("username", profile.username)
+            .putInt("avatarId", profile.avatarId)
+            .putString("avatarCustomUri", profile.avatarCustomUri)
+            .putInt("level", profile.level)
+            .putInt("xp", profile.xp)
+            .putInt("wins", profile.wins)
+            .putInt("losses", profile.losses)
+            .putInt("totalGames", profile.totalGames)
+            .apply()
+    }
 
     // Selected Game Config
     private val _selectedMode = MutableStateFlow(GameMode.SINGLE_PLAYER)
@@ -143,18 +181,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startLobbySyncHeartbeat() {
         viewModelScope.launch {
             while (true) {
-                delay(1800)
+                delay(1500)
                 if (_selectedMode.value != GameMode.SINGLE_PLAYER && _roomCode.value.isNotEmpty()) {
                     val currentScr = _currentScreen.value
                     if (currentScr == AppScreen.LOBBY || currentScr == AppScreen.SECRET_SETUP) {
+                        val me = _playerProfile.value
                         if (_isHost.value) {
                             broadcastRoomState()
                         } else {
-                            val me = _playerProfile.value
                             if (_selectedMode.value == GameMode.ONLINE_ROOM) {
                                 onlineNetworkManager.sendMessage("JOIN", me.id, me.username, me.avatarId.toString())
                             } else if (_selectedMode.value == GameMode.LOCAL_WIFI) {
                                 localWifiNetworkManager.sendMessage("JOIN", me.id, me.username, me.avatarId.toString())
+                            }
+                        }
+
+                        // Re-send SECRET_SET if secret was set
+                        if (_mySecretNumber.value.isNotEmpty()) {
+                            if (_selectedMode.value == GameMode.ONLINE_ROOM) {
+                                onlineNetworkManager.sendMessage("SECRET_SET", me.id, me.username, "true")
+                            } else if (_selectedMode.value == GameMode.LOCAL_WIFI) {
+                                localWifiNetworkManager.sendMessage("SECRET_SET", me.id, me.username, "true")
+                            }
+                        }
+
+                        checkIfBothSecretsSetAndStart()
+                    } else if (currentScr == AppScreen.RESULTS) {
+                        val me = _playerProfile.value
+                        if (_mySecretNumber.value.isNotEmpty()) {
+                            if (_selectedMode.value == GameMode.ONLINE_ROOM) {
+                                onlineNetworkManager.sendMessage("REVEAL_SECRET", me.id, me.username, _mySecretNumber.value)
+                            } else if (_selectedMode.value == GameMode.LOCAL_WIFI) {
+                                localWifiNetworkManager.sendMessage("REVEAL_SECRET", me.id, me.username, _mySecretNumber.value)
                             }
                         }
                     }
@@ -201,15 +259,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun createJoinPayload(): String {
+        val p = _playerProfile.value
+        return JSONObject().apply {
+            put("avatarId", p.avatarId)
+            put("customUri", p.avatarCustomUri ?: "")
+            put("level", p.level)
+        }.toString()
+    }
+
     private fun handleNetworkMessage(msg: NetworkMessage) {
         if (msg.senderId == _playerProfile.value.id) return // ignore self echo
 
         when (msg.type) {
             "JOIN" -> {
+                var avId = 2
+                var custUri: String? = null
+                var lvl = 1
+                try {
+                    val raw = msg.payload.trim()
+                    if (raw.startsWith("{")) {
+                        val json = JSONObject(raw)
+                        avId = json.optInt("avatarId", 2)
+                        custUri = json.optString("customUri", "").ifEmpty { null }
+                        lvl = json.optInt("level", 1)
+                    } else {
+                        avId = raw.toIntOrNull() ?: 2
+                    }
+                } catch (e: Exception) {
+                    avId = msg.payload.toIntOrNull() ?: 2
+                }
+
                 val guestPlayer = RoomPlayer(
                     id = msg.senderId,
                     name = msg.senderName,
-                    avatarId = (msg.payload.toIntOrNull() ?: 2),
+                    avatarId = avId,
+                    avatarCustomUri = custUri,
+                    level = lvl,
                     isHost = false
                 )
                 _roomPlayers.value = _roomPlayers.value.filter { it.id != guestPlayer.id } + guestPlayer
@@ -237,7 +323,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             RoomPlayer(
                                 id = pObj.getString("id"),
                                 name = pObj.getString("name"),
-                                avatarId = pObj.getInt("avatarId"),
+                                avatarId = pObj.optInt("avatarId", 1),
+                                avatarCustomUri = pObj.optString("customUri", "").ifEmpty { null },
+                                level = pObj.optInt("level", 1),
                                 isHost = pObj.getBoolean("isHost"),
                                 isReady = pObj.getBoolean("isReady"),
                                 secretSet = pObj.getBoolean("secretSet")
@@ -263,7 +351,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (it.id == msg.senderId) it.copy(secretSet = true) else it
                 }
                 soundManager.playClick()
+                if (_isHost.value) {
+                    broadcastRoomState()
+                }
                 checkIfBothSecretsSetAndStart()
+            }
+
+            "REVEAL_SECRET" -> {
+                if (msg.payload.isNotEmpty()) {
+                    _opponentSecretNumber.value = msg.payload
+                }
             }
 
             "GUESS" -> {
@@ -324,8 +421,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _myAttemptsLog.value = _myAttemptsLog.value + attempt
 
                     if (isWin) {
+                        _opponentSecretNumber.value = guessedVal
                         soundManager.playWin()
                         onGameEnded(winner = _playerProfile.value.username, isMeWin = true)
+                    } else {
+                        _isMyTurn.value = false
+                        startTurnTimer()
                     }
                 } catch (e: Exception) {
                     Log.e("MainViewModel", "Error handling GUESS_REPLY: ${e.message}")
@@ -362,10 +463,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateProfile(newUsername: String, newAvatarId: Int) {
-        _playerProfile.value = _playerProfile.value.copy(
+        val updated = _playerProfile.value.copy(
             username = newUsername.ifEmpty { "اللاعب الأسطوري" },
             avatarId = newAvatarId
         )
+        _playerProfile.value = updated
+        saveProfileToPrefs(updated)
+        soundManager.playClick()
+    }
+
+    fun updateProfileFull(newUsername: String, newAvatarId: Int, newCustomUri: String?) {
+        val updated = _playerProfile.value.copy(
+            username = newUsername.ifEmpty { "اللاعب الأسطوري" },
+            avatarId = newAvatarId,
+            avatarCustomUri = newCustomUri
+        )
+        _playerProfile.value = updated
+        saveProfileToPrefs(updated)
         soundManager.playClick()
     }
 
@@ -397,10 +511,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- LOBBY & ROOM ACTIONS ---
 
+    fun getDetectedHostIp(): String {
+        return localWifiNetworkManager.getGatewayOrHostIpAddress()
+    }
+
+    fun getMyDeviceIp(): String {
+        return localWifiNetworkManager.getLocalIpAddress()
+    }
+
     fun createRoom() {
         _isHost.value = true
         if (_selectedMode.value == GameMode.LOCAL_WIFI) {
-            _roomCode.value = localWifiNetworkManager.getLocalIpAddress()
+            val devIp = localWifiNetworkManager.getLocalIpAddress()
+            _roomCode.value = if (devIp.isNotEmpty()) devIp else "192.168.43.1"
         } else {
             _roomCode.value = generateRoomCode()
         }
@@ -408,6 +531,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             id = _playerProfile.value.id,
             name = _playerProfile.value.username,
             avatarId = _playerProfile.value.avatarId,
+            avatarCustomUri = _playerProfile.value.avatarCustomUri,
+            level = _playerProfile.value.level,
             isHost = true,
             isReady = true
         )
@@ -421,7 +546,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             GameMode.LOCAL_WIFI -> {
                 localWifiNetworkManager.startHosting()
             }
-            GameMode.SINGLE_PLAYER -> {}
+            GameMode.SINGLE_PLAYER -> {
+                val aiBot = RoomPlayer(
+                    id = "ai_bot",
+                    name = "البوت الذكي (${_selectedDifficulty.value.titleAr})",
+                    avatarId = 1,
+                    avatarCustomUri = null,
+                    level = when (_selectedDifficulty.value) {
+                        AiDifficulty.EASY -> 10
+                        AiDifficulty.MEDIUM -> 30
+                        AiDifficulty.HARD -> 60
+                        AiDifficulty.IMPOSSIBLE -> 99
+                    },
+                    isHost = false,
+                    isReady = true,
+                    secretSet = true
+                )
+                _roomPlayers.value = listOf(me, aiBot)
+            }
         }
 
         _currentScreen.value = AppScreen.LOBBY
@@ -440,11 +582,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             id = _playerProfile.value.id,
             name = _playerProfile.value.username,
             avatarId = _playerProfile.value.avatarId,
+            avatarCustomUri = _playerProfile.value.avatarCustomUri,
+            level = _playerProfile.value.level,
             isHost = false,
             isReady = false
         )
         _roomPlayers.value = listOf(me)
         resetLobbyState()
+
+        val joinPayloadStr = createJoinPayload()
 
         when (_selectedMode.value) {
             GameMode.ONLINE_ROOM -> {
@@ -453,7 +599,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Send rapid burst of JOIN packets to guarantee fast delivery
                     for (del in listOf(0L, 200L, 500L, 1000L)) {
                         delay(del)
-                        onlineNetworkManager.sendMessage("JOIN", me.id, me.name, me.avatarId.toString())
+                        onlineNetworkManager.sendMessage("JOIN", me.id, me.name, joinPayloadStr)
                     }
                 }
             }
@@ -462,7 +608,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch {
                     for (del in listOf(0L, 200L, 500L)) {
                         delay(del)
-                        localWifiNetworkManager.sendMessage("JOIN", me.id, me.name, me.avatarId.toString())
+                        localWifiNetworkManager.sendMessage("JOIN", me.id, me.name, joinPayloadStr)
                     }
                 }
             }
@@ -550,15 +696,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 startGameplaySession()
             }
             GameMode.ONLINE_ROOM -> {
-                onlineNetworkManager.sendMessage("SECRET_SET", meId, _playerProfile.value.username, "true")
+                viewModelScope.launch {
+                    for (del in listOf(0L, 200L, 500L)) {
+                        delay(del)
+                        onlineNetworkManager.sendMessage("SECRET_SET", meId, _playerProfile.value.username, "true")
+                    }
+                }
                 broadcastRoomState()
                 checkIfBothSecretsSetAndStart()
             }
             GameMode.LOCAL_WIFI -> {
-                localWifiNetworkManager.sendMessage("SECRET_SET", meId, _playerProfile.value.username, "true")
+                viewModelScope.launch {
+                    for (del in listOf(0L, 200L, 500L)) {
+                        delay(del)
+                        localWifiNetworkManager.sendMessage("SECRET_SET", meId, _playerProfile.value.username, "true")
+                    }
+                }
                 broadcastRoomState()
                 checkIfBothSecretsSetAndStart()
             }
+        }
+    }
+
+    fun resendSecretSetState() {
+        if (_mySecretNumber.value.isEmpty()) return
+        val meId = _playerProfile.value.id
+        when (_selectedMode.value) {
+            GameMode.ONLINE_ROOM -> {
+                onlineNetworkManager.sendMessage("SECRET_SET", meId, _playerProfile.value.username, "true")
+                if (_isHost.value) broadcastRoomState()
+            }
+            GameMode.LOCAL_WIFI -> {
+                localWifiNetworkManager.sendMessage("SECRET_SET", meId, _playerProfile.value.username, "true")
+                if (_isHost.value) broadcastRoomState()
+            }
+            else -> {}
+        }
+        checkIfBothSecretsSetAndStart()
+    }
+
+    fun autoDiscoverAndJoinLocalRoom(onResult: (Boolean, String) -> Unit) {
+        localWifiNetworkManager.discoverAndConnect { success, ip ->
+            if (success && ip.isNotEmpty()) {
+                joinRoom(ip)
+            }
+            onResult(success, ip)
         }
     }
 
@@ -582,6 +764,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     put("id", p.id)
                     put("name", p.name)
                     put("avatarId", p.avatarId)
+                    put("customUri", p.avatarCustomUri ?: "")
+                    put("level", p.level)
                     put("isHost", p.isHost)
                     put("isReady", p.isReady)
                     put("secretSet", p.secretSet)
@@ -695,12 +879,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isMyTurn.value = false
                 val me = _playerProfile.value
                 onlineNetworkManager.sendMessage("GUESS", me.id, me.username, guessVal)
+                startTurnTimer()
             }
 
             GameMode.LOCAL_WIFI -> {
                 _isMyTurn.value = false
                 val me = _playerProfile.value
                 localWifiNetworkManager.sendMessage("GUESS", me.id, me.username, guessVal)
+                startTurnTimer()
             }
         }
     }
@@ -724,7 +910,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startTurnTimer() {
         timerJob?.cancel()
-        _turnTimerSeconds.value = 30
+        _turnTimerSeconds.value = 90
         timerJob = viewModelScope.launch {
             while (_turnTimerSeconds.value > 0) {
                 delay(1000)
@@ -738,6 +924,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val autoVal = if (_selectedType.value == GameType.CODE_SECRET) "1".repeat(_codeLength.value) else "50"
                 _currentInput.value = autoVal
                 submitGuess()
+            } else if (_selectedMode.value != GameMode.SINGLE_PLAYER) {
+                // Opponent turn timed out -> pass turn back to me
+                _isMyTurn.value = true
+                startTurnTimer()
             }
         }
     }
@@ -746,6 +936,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         timerJob?.cancel()
         _isWinner.value = isMeWin
         _winnerName.value = winner
+
+        val me = _playerProfile.value
+        if (_mySecretNumber.value.isNotEmpty()) {
+            if (_selectedMode.value == GameMode.ONLINE_ROOM) {
+                onlineNetworkManager.sendMessage("REVEAL_SECRET", me.id, me.username, _mySecretNumber.value)
+            } else if (_selectedMode.value == GameMode.LOCAL_WIFI) {
+                localWifiNetworkManager.sendMessage("REVEAL_SECRET", me.id, me.username, _mySecretNumber.value)
+            }
+        }
 
         if (isMeWin) {
             soundManager.playWin()
@@ -765,6 +964,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 totalGames = _playerProfile.value.totalGames + 1
             )
         }
+        saveProfileToPrefs(_playerProfile.value)
 
         // Save match record to database
         viewModelScope.launch {

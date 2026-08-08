@@ -24,6 +24,7 @@ data class PlayerProfile(
     val id: String = "player_${System.currentTimeMillis() % 10000}",
     val username: String = "اللاعب الأسطوري",
     val avatarId: Int = 1,
+    val avatarCustomUri: String? = null,
     val level: Int = 1,
     val xp: Int = 150,
     val wins: Int = 0,
@@ -51,7 +52,9 @@ data class GuessAttempt(
 data class RoomPlayer(
     val id: String,
     val name: String,
-    val avatarId: Int,
+    val avatarId: Int = 1,
+    val avatarCustomUri: String? = null,
+    val level: Int = 1,
     val isHost: Boolean,
     val isReady: Boolean = false,
     val secretSet: Boolean = false,

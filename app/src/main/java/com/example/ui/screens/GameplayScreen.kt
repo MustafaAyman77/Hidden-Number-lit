@@ -171,8 +171,12 @@ fun GameplayScreen(
                         tint = if (turnTimerSeconds <= 5) NeonRed else NeonCyan,
                         modifier = Modifier.size(18.dp)
                     )
+                    val minutes = turnTimerSeconds / 60
+                    val seconds = turnTimerSeconds % 60
+                    val timerDisplay = if (turnTimerSeconds >= 60) "${minutes}:${seconds.toString().padStart(2, '0')}" else "${turnTimerSeconds}s"
+
                     Text(
-                        text = "${turnTimerSeconds}s",
+                        text = timerDisplay,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
                         color = if (turnTimerSeconds <= 5) NeonRed else NeonCyan

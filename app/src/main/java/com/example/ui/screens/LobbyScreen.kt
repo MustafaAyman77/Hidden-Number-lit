@@ -63,6 +63,7 @@ import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
 import com.example.ui.components.CyberButton
 import com.example.ui.components.GlassCard
+import com.example.ui.components.PlayerAvatarView
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkSurfaceGlass
 import com.example.ui.theme.GlassBorder
@@ -70,6 +71,7 @@ import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.NeonEmerald
 import com.example.ui.theme.NeonMagenta
 import com.example.ui.theme.NeonRed
+import com.example.ui.theme.NeonYellow
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
@@ -489,17 +491,23 @@ fun PlayerCard(
                 fontWeight = FontWeight.SemiBold
             )
 
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(if (player != null) NeonCyan.copy(0.3f) else GlassBorder),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (player != null) "👤" else "❓",
-                    fontSize = 20.sp
+            if (player != null) {
+                PlayerAvatarView(
+                    avatarId = player.avatarId,
+                    customUri = player.avatarCustomUri,
+                    size = 48.dp,
+                    borderColor = if (player.isReady || player.secretSet) NeonEmerald else NeonCyan
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(GlassBorder),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "❓", fontSize = 20.sp)
+                }
             }
 
             Text(
@@ -509,6 +517,15 @@ fun PlayerCard(
                 color = TextPrimary,
                 maxLines = 1
             )
+
+            if (player != null) {
+                Text(
+                    text = if (languageAr) "مستوى ${player.level}" else "Lvl ${player.level}",
+                    fontSize = 10.sp,
+                    color = NeonYellow,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             val statusText = when {
                 player == null -> if (languageAr) "في الانتظار..." else "Waiting..."

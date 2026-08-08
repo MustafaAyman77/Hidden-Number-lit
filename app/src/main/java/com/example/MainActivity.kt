@@ -159,6 +159,13 @@ class MainActivity : ComponentActivity() {
                                         languageAr = languageAr
                                     )
                                 }
+                                AppScreen.PROFILE -> {
+                                    com.example.ui.screens.ProfileRegistrationScreen(
+                                        viewModel = viewModel,
+                                        profile = profile,
+                                        languageAr = languageAr
+                                    )
+                                }
                             }
                         }
                     }
