@@ -6,5 +6,5 @@ package com.example.update
  */
 object UpdateConfig {
     // SINGLE CONFIGURATION URL for the update manifest (version.json)
-    const val UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/mustafaymanborayk/hidden-number-game/main/version.json"
+    const val UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/MustafaAyman77/Hidden-Number-lit/main/version.json"
 }
