@@ -5,12 +5,17 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +80,8 @@ import com.example.ui.theme.NeonRed
 import com.example.ui.theme.NeonYellow
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun GameplayScreen(
@@ -92,7 +101,56 @@ fun GameplayScreen(
 ) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var selectedBoardTab by remember { mutableStateOf(0) } // 0 = My Board, 1 = Opponent Board
+
+    val shakeOffsetX = remember { Animatable(0f) }
+    var activeFeedbackAttempt by remember { mutableStateOf<GuessAttempt?>(null) }
+    var previousMyAttemptsSize by remember { mutableStateOf(myAttempts.size) }
+    var previousOpponentAttemptsSize by remember { mutableStateOf(opponentAttempts.size) }
+
+    // Trigger visual/audio feedback and shake animation on new guess
+    LaunchedEffect(myAttempts.size) {
+        if (myAttempts.size > previousMyAttemptsSize && myAttempts.isNotEmpty()) {
+            val latest = myAttempts.last()
+            activeFeedbackAttempt = latest
+
+            if (latest.isWin) {
+                viewModel.soundManager.playWin()
+            } else {
+                viewModel.soundManager.playLoss()
+                coroutineScope.launch {
+                    repeat(3) {
+                        shakeOffsetX.animateTo(18f, animationSpec = tween(40))
+                        shakeOffsetX.animateTo(-18f, animationSpec = tween(40))
+                    }
+                    shakeOffsetX.animateTo(0f, animationSpec = tween(40))
+                }
+            }
+
+            coroutineScope.launch {
+                delay(2500)
+                if (activeFeedbackAttempt == latest) {
+                    activeFeedbackAttempt = null
+                }
+            }
+        }
+        previousMyAttemptsSize = myAttempts.size
+    }
+
+    LaunchedEffect(opponentAttempts.size) {
+        if (opponentAttempts.size > previousOpponentAttemptsSize && opponentAttempts.isNotEmpty()) {
+            val latest = opponentAttempts.last()
+            activeFeedbackAttempt = latest
+            coroutineScope.launch {
+                delay(2500)
+                if (activeFeedbackAttempt == latest) {
+                    activeFeedbackAttempt = null
+                }
+            }
+        }
+        previousOpponentAttemptsSize = opponentAttempts.size
+    }
 
     var hasMicPermission = ContextCompat.checkSelfPermission(
         context,
@@ -127,6 +185,7 @@ fun GameplayScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .offset(x = shakeOffsetX.value.dp)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -345,6 +404,84 @@ fun GameplayScreen(
             }
         }
 
+        // Animated Banner Overlay on Guess Result (Correct or Wrong)
+        AnimatedVisibility(
+            visible = activeFeedbackAttempt != null,
+            enter = fadeIn() + scaleIn(animationSpec = spring(dampingRatio = 0.6f)) + slideInVertically { -100 },
+            exit = fadeOut() + scaleOut() + slideOutVertically { -100 },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 70.dp, start = 16.dp, end = 16.dp)
+        ) {
+            activeFeedbackAttempt?.let { attempt ->
+                val isWin = attempt.isWin
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            brush = Brush.horizontalGradient(
+                                colors = if (isWin) {
+                                    listOf(Color(0xFF003820), Color(0xFF006B38), Color(0xFF003820))
+                                } else {
+                                    listOf(Color(0xFF4A0018), Color(0xFF8B0028), Color(0xFF4A0018))
+                                }
+                            )
+                        )
+                        .border(
+                            width = 2.dp,
+                            color = if (isWin) NeonEmerald else NeonRed,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(if (isWin) NeonEmerald.copy(0.25f) else NeonRed.copy(0.25f))
+                                .border(2.dp, if (isWin) NeonEmerald else NeonRed, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isWin) "🎉" else "❌",
+                                fontSize = 28.sp
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isWin) {
+                                    if (languageAr) "إجابة صحيحة أسطورية! 🏆" else "LEGENDARY CORRECT GUESS! 🏆"
+                                } else {
+                                    if (languageAr) "تخمين خاطئ! ⚡" else "INCORRECT GUESS! ⚡"
+                                },
+                                color = if (isWin) NeonEmerald else NeonRed,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (languageAr) {
+                                    "الرقم [${attempt.guessedNumber}]: ${attempt.clueTextAr}"
+                                } else {
+                                    "Code [${attempt.guessedNumber}]: ${attempt.clueTextEn}"
+                                },
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Reaction Overlay
         AnimatedVisibility(
             visible = lastReactionEmoji != null,
@@ -387,15 +524,15 @@ fun AttemptLogCard(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(NeonCyan.copy(0.2f))
-                        .border(1.dp, NeonCyan, CircleShape),
+                        .background(if (attempt.isWin) NeonEmerald.copy(0.2f) else NeonCyan.copy(0.2f))
+                        .border(1.dp, if (attempt.isWin) NeonEmerald else NeonCyan, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "#${attempt.attemptNumber}",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = NeonCyan
+                        color = if (attempt.isWin) NeonEmerald else NeonCyan
                     )
                 }
 
@@ -404,7 +541,7 @@ fun AttemptLogCard(
                         text = attempt.guessedNumber,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Black,
-                        color = TextPrimary,
+                        color = if (attempt.isWin) NeonEmerald else TextPrimary,
                         letterSpacing = 2.sp
                     )
                     Text(
@@ -432,3 +569,4 @@ fun AttemptLogCard(
         }
     }
 }
+
