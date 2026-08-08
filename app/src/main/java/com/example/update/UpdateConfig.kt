@@ -1,10 +1,37 @@
 package com.example.update
 
-/**
-  Configuration object for the In-App Auto Update system.
-  Update [UPDATE_MANIFEST_URL] to point to your hosted version.json on GitHub Releases or HTTPS server.
- */
 object UpdateConfig {
-    // SINGLE CONFIGURATION URL for the update manifest (version.json)
-    const val UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/MustafaAyman77/Hidden-Number-lit/main/version.json"
+
+    /**
+     * GitHub repository containing the game's releases.
+     *
+     * Format:
+     * owner/repository
+     */
+    const val GITHUB_REPOSITORY =
+        "MustafaAyman77/Hidden-Number-lit"
+
+    /**
+     * APK extension expected in GitHub Releases.
+     */
+    const val APK_EXTENSION =
+        ".apk"
+
+    /**
+     * Maximum number of HTTP redirects.
+     */
+    const val MAX_REDIRECTS =
+        10
+
+    /**
+     * Network connection timeout.
+     */
+    const val CONNECT_TIMEOUT =
+        15_000
+
+    /**
+     * Network read timeout.
+     */
+    const val READ_TIMEOUT =
+        30_000
 }
