@@ -3,9 +3,7 @@ package com.example.update
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
-import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -14,12 +12,12 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -29,123 +27,28 @@ import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
 
-// ============================================================
-// تعريفات مساعدة (يجب أن تكون موجودة في المشروع)
-// ============================================================
-
-/** إعدادات التحديث */
-object UpdateConfig {
-    const val GITHUB_REPOSITORY = "MustafaAyman77/Hidden-Number-lit"   // غيّر إلى المستودع الخاص بك
-    const val APK_EXTENSION = ".apk"
-    const val CONNECT_TIMEOUT = 15000
-    const val READ_TIMEOUT = 15000
-    const val MAX_REDIRECTS = 5
-}
-
-/** بيانات الإصدار المسترجعة من GitHub */
-data class UpdateManifest(
-    val versionCode: Int,
-    val versionName: String,
-    val apkUrl: String,
-    val size: String,          // نص منسق مثل "12.5 MB"
-    val releaseNotes: List<String>,
-    val mandatory: Boolean,
-    val sha256: String?        // اختياري
-)
-
-/** حالات واجهة المستخدم الخاصة بالتحديث */
-sealed class UpdateUIState {
-    object Idle : UpdateUIState()
-    object Checking : UpdateUIState()
-
-    data class Available(
-        val manifest: UpdateManifest,
-        val isWifi: Boolean,
-        val currentVersionName: String,
-        val currentVersionCode: Long
-    ) : UpdateUIState()
-
-    data class Downloading(
-        val manifest: UpdateManifest,
-        val progressPercent: Int,
-        val downloadedFormatted: String,
-        val totalFormatted: String
-    ) : UpdateUIState()
-
-    data class ReadyToInstall(
-        val manifest: UpdateManifest,
-        val apkFilePath: String
-    ) : UpdateUIState()
-
-    data class Error(
-        val manifest: UpdateManifest?,
-        val messageAr: String,
-        val messageEn: String
-    ) : UpdateUIState()
-}
-
-// ============================================================
-// المدير الرئيسي
-// ============================================================
-
-/**
- * مدير التحديثات للتطبيق.
- * يقوم بالتحقق من وجود إصدارات جديدة على GitHub، وتنزيلها وتثبيتها.
- */
 class AppUpdateManager(
     private val context: Context,
     private val scope: CoroutineScope
 ) {
-
-    companion object {
-        private const val TAG = "AppUpdateManager"
-        private const val PREFS_NAME = "app_update_preferences"
-        private const val KEY_SKIPPED_VERSION = "skipped_version_code"
-    }
-
     private val _updateState = MutableStateFlow<UpdateUIState>(UpdateUIState.Idle)
     val updateState: StateFlow<UpdateUIState> = _updateState.asStateFlow()
 
-    private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private var skippedVersionCode: Long = -1L
     private var downloadJob: Job? = null
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private var lastWifiState = isWifiConnected()
-
-    init {
-        registerNetworkCallback()
-    }
-
-    // ============================================================
-    // التحقق من وجود تحديث
-    // ============================================================
 
     fun checkForUpdates(manualTrigger: Boolean = false) {
-        if (!isNetworkAvailable()) {
-            if (manualTrigger) {
-                _updateState.value = UpdateUIState.Error(
-                    manifest = null,
-                    messageAr = "لا يوجد اتصال بالإنترنت للتحقق من التحديثات.",
-                    messageEn = "No internet connection."
-                )
-            }
-            return
-        }
-
         scope.launch(Dispatchers.IO) {
             try {
                 _updateState.value = UpdateUIState.Checking
 
-                val currentVersionCode = getCurrentVersionCode()
-                val currentVersionName = getCurrentVersionName()
-                val manifest = fetchGitHubReleaseManifest()
-
-                if (manifest == null) {
-                    Log.d(TAG, "No valid GitHub release found.")
+                if (!isNetworkAvailable()) {
+                    Log.d("AppUpdateManager", "No network connection. Skipping update check.")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
-                            messageAr = "لم يتم العثور على إصدار تحديث صالح.",
-                            messageEn = "No valid update was found."
+                            messageAr = "لا يوجد اتصال بالإنترنت للتحقق من التحديثات.",
+                            messageEn = "No internet connection to check for updates."
                         )
                     } else {
                         _updateState.value = UpdateUIState.Idle
@@ -153,10 +56,17 @@ class AppUpdateManager(
                     return@launch
                 }
 
-                val updateAvailable = isUpdateAvailable(manifest, currentVersionCode, currentVersionName)
+                val currentVersionCode = getCurrentVersionCode()
+                val currentVersionName = getCurrentVersionName()
 
-                if (!updateAvailable) {
-                    Log.d(TAG, "Application is up to date.")
+                // Fetch update manifest from GitHub Releases API first, and fallback to UPDATE_MANIFEST_URL
+                val ghManifest = fetchGitHubReleaseManifest("mustafaymanborayk/hidden-number-game")
+                val jsonManifest = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)?.let { parseUpdateManifest(it) }
+
+                val manifest: UpdateManifest? = ghManifest ?: jsonManifest
+
+                if (manifest == null) {
+                    Log.d("AppUpdateManager", "No release or manifest found.")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
@@ -169,27 +79,42 @@ class AppUpdateManager(
                     return@launch
                 }
 
-                val skippedVersion = preferences.getLong(KEY_SKIPPED_VERSION, -1L)
-                if (!manifest.mandatory && manifest.versionCode.toLong() == skippedVersion && !manualTrigger) {
-                    Log.d(TAG, "Version was skipped.")
-                    _updateState.value = UpdateUIState.Idle
-                    return@launch
+                val isWifi = isWifiConnected()
+                val isNewer = isUpdateAvailable(manifest, currentVersionCode, currentVersionName)
+
+                if (isNewer) {
+                    // Check if user skipped this version (if optional)
+                    if (!manifest.mandatory && manifest.versionCode.toLong() == skippedVersionCode && !manualTrigger) {
+                        Log.d("AppUpdateManager", "User skipped version ${manifest.versionCode}")
+                        _updateState.value = UpdateUIState.Idle
+                        return@launch
+                    }
+
+                    _updateState.value = UpdateUIState.Available(
+                        manifest = manifest,
+                        isWifi = isWifi,
+                        currentVersionName = currentVersionName,
+                        currentVersionCode = currentVersionCode
+                    )
+                } else {
+                    Log.d("AppUpdateManager", "App is up to date ($currentVersionName vs ${manifest.versionName}).")
+                    if (manualTrigger) {
+                        _updateState.value = UpdateUIState.Error(
+                            manifest = null,
+                            messageAr = "أنت تستخدم أحدث إصدار بالفعل ($currentVersionName).",
+                            messageEn = "You are already using the latest version ($currentVersionName)."
+                        )
+                    } else {
+                        _updateState.value = UpdateUIState.Idle
+                    }
                 }
-
-                _updateState.value = UpdateUIState.Available(
-                    manifest = manifest,
-                    isWifi = isWifiConnected(),
-                    currentVersionName = currentVersionName,
-                    currentVersionCode = currentVersionCode
-                )
-
             } catch (e: Exception) {
-                Log.e(TAG, "Update check failed.", e)
+                Log.e("AppUpdateManager", "Error checking for updates: ${e.message}", e)
                 if (manualTrigger) {
                     _updateState.value = UpdateUIState.Error(
                         manifest = null,
-                        messageAr = "حدث خطأ أثناء التحقق من التحديث.",
-                        messageEn = "Failed to check for updates."
+                        messageAr = "حدث خطأ أثناء الاتصال بسيرفر التحديثات.",
+                        messageEn = "An error occurred while checking for updates."
                     )
                 } else {
                     _updateState.value = UpdateUIState.Idle
@@ -198,73 +123,94 @@ class AppUpdateManager(
         }
     }
 
-    // ============================================================
-    // تحميل ملف APK
-    // ============================================================
-
     fun downloadAndInstallApk(manifest: UpdateManifest) {
-        if (!isWifiConnected()) {
+        if (!isWifiConnected() && !isNetworkAvailable()) {
             _updateState.value = UpdateUIState.Error(
                 manifest = manifest,
-                messageAr = "يرجى الاتصال بشبكة Wi-Fi لتنزيل التحديث.",
-                messageEn = "Please connect to Wi-Fi."
+                messageAr = "لا يوجد اتصال بالإنترنت لبدء تنزيل التحديث.",
+                messageEn = "No internet connection to start download."
             )
             return
         }
 
         downloadJob?.cancel()
         downloadJob = scope.launch(Dispatchers.IO) {
-            var connection: HttpURLConnection? = null
+            var urlConnection: HttpURLConnection? = null
             var inputStream: InputStream? = null
             var outputStream: FileOutputStream? = null
             var apkFile: File? = null
 
             try {
-                val updatesDirectory = File(context.cacheDir, "updates")
-                if (!updatesDirectory.exists()) {
-                    updatesDirectory.mkdirs()
+                val destinationDir = File(context.cacheDir, "updates")
+                if (!destinationDir.exists()) destinationDir.mkdirs()
+                
+                apkFile = File(destinationDir, "game_v${manifest.versionCode}.apk")
+                if (apkFile.exists()) apkFile.delete()
+
+                var currentDownloadUrl = manifest.apkUrl
+                var redirectCount = 0
+                var connectionSuccess = false
+
+                while (redirectCount < 10) {
+                    val url = URL(currentDownloadUrl)
+                    urlConnection = url.openConnection() as HttpURLConnection
+                    urlConnection.connectTimeout = 15000
+                    urlConnection.readTimeout = 30000
+                    urlConnection.instanceFollowRedirects = true
+                    urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AppUpdateChecker)")
+                    urlConnection.requestMethod = "GET"
+                    urlConnection.connect()
+
+                    val status = urlConnection.responseCode
+                    if (status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                        status == HttpURLConnection.HTTP_MOVED_PERM ||
+                        status == HttpURLConnection.HTTP_SEE_OTHER ||
+                        status == 307 || status == 308) {
+                        val location = urlConnection.getHeaderField("Location")
+                        if (!location.isNullOrEmpty()) {
+                            currentDownloadUrl = location
+                            urlConnection.disconnect()
+                            redirectCount++
+                            continue
+                        }
+                    }
+
+                    if (status == HttpURLConnection.HTTP_OK) {
+                        connectionSuccess = true
+                        break
+                    } else {
+                        break
+                    }
                 }
 
-                apkFile = File(updatesDirectory, "game_v${manifest.versionCode}.apk")
-                if (apkFile.exists()) {
-                    apkFile.delete()
+                if (!connectionSuccess || urlConnection == null || urlConnection.responseCode != HttpURLConnection.HTTP_OK) {
+                    val code = urlConnection?.responseCode ?: -1
+                    _updateState.value = UpdateUIState.Error(
+                        manifest = manifest,
+                        messageAr = "فشل تنزيل التحديث من السيرفر (رمز الخطأ: $code).",
+                        messageEn = "Failed to download update (HTTP $code)."
+                    )
+                    return@launch
                 }
 
-                val downloadUrl = resolveDownloadUrl(manifest.apkUrl)
-                connection = openConnection(downloadUrl, followRedirects = true)
-
-                val responseCode = connection.responseCode
-                if (responseCode != HttpURLConnection.HTTP_OK) {
-                    throw Exception("HTTP $responseCode")
-                }
-
-                val totalBytes = connection.contentLengthLong
-                inputStream = connection.inputStream
+                val totalBytes = urlConnection.contentLengthLong.let { if (it > 0) it else 1L }
+                inputStream = urlConnection.inputStream
                 outputStream = FileOutputStream(apkFile)
 
-                val buffer = ByteArray(16 * 1024)
-                var downloadedBytes = 0L
+                val buffer = ByteArray(8192)
                 var bytesRead: Int
-                var lastPercent = -1
+                var downloadedBytes = 0L
+                var lastReportedPercent = -1
 
                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                     outputStream.write(buffer, 0, bytesRead)
                     downloadedBytes += bytesRead
 
-                    val percent = if (totalBytes > 0) {
-                        (downloadedBytes * 100L / totalBytes).toInt().coerceIn(0, 100)
-                    } else {
-                        -1
-                    }
-
-                    if (percent != lastPercent) {
-                        lastPercent = percent
+                    val percent = ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
+                    if (percent != lastReportedPercent) {
+                        lastReportedPercent = percent
                         val downloadedMB = String.format(Locale.US, "%.1f MB", downloadedBytes / (1024f * 1024f))
-                        val totalMB = if (totalBytes > 0) {
-                            String.format(Locale.US, "%.1f MB", totalBytes / (1024f * 1024f))
-                        } else {
-                            "غير معروف"
-                        }
+                        val totalMB = String.format(Locale.US, "%.1f MB", totalBytes / (1024f * 1024f))
 
                         _updateState.value = UpdateUIState.Downloading(
                             manifest = manifest,
@@ -277,13 +223,17 @@ class AppUpdateManager(
 
                 outputStream.flush()
 
-                // التحقق من SHA-256
+                // Check SHA-256 Checksum if provided
                 if (!manifest.sha256.isNullOrBlank()) {
                     val actualHash = calculateSha256(apkFile)
-                    val expectedHash = manifest.sha256.trim()
-                    if (!actualHash.equals(expectedHash, ignoreCase = true)) {
+                    if (!actualHash.equals(manifest.sha256.trim(), ignoreCase = true)) {
                         apkFile.delete()
-                        throw SecurityException("SHA-256 mismatch")
+                        _updateState.value = UpdateUIState.Error(
+                            manifest = manifest,
+                            messageAr = "فشل التثبيت: الملف المُنزل غير صالح أو تالف (تطابق SHA-256 غير صحيح).",
+                            messageEn = "Installation failed: Downloaded file is corrupted (SHA-256 mismatch)."
+                        )
+                        return@launch
                     }
                 }
 
@@ -292,44 +242,31 @@ class AppUpdateManager(
                     apkFilePath = apkFile.absolutePath
                 )
 
+                // Trigger installation
                 withContext(Dispatchers.Main) {
                     installApk(apkFile.absolutePath)
                 }
 
-            } catch (e: SecurityException) {
-                Log.e(TAG, "APK verification failed.", e)
-                apkFile?.delete()
-                _updateState.value = UpdateUIState.Error(
-                    manifest = manifest,
-                    messageAr = "فشل التحقق من سلامة ملف التحديث.",
-                    messageEn = "APK integrity verification failed."
-                )
-
             } catch (e: Exception) {
-                Log.e(TAG, "APK download failed.", e)
+                Log.e("AppUpdateManager", "Error downloading APK: ${e.message}", e)
                 apkFile?.delete()
                 _updateState.value = UpdateUIState.Error(
                     manifest = manifest,
-                    messageAr = "تعذر تنزيل التحديث. تحقق من اتصال Wi-Fi وحاول مرة أخرى.",
-                    messageEn = "Could not download the update."
+                    messageAr = "تعذر إكمال تنزيل التحديث. تحقق من اتصال الإنترنت وحاول مرة أخرى.",
+                    messageEn = "Could not complete update download. Check your internet connection and try again."
                 )
-
             } finally {
-                try { inputStream?.close() } catch (_: Exception) {}
-                try { outputStream?.close() } catch (_: Exception) {}
-                connection?.disconnect()
+                try { inputStream?.close() } catch (ignored: Exception) {}
+                try { outputStream?.close() } catch (ignored: Exception) {}
+                try { urlConnection?.disconnect() } catch (ignored: Exception) {}
             }
         }
     }
 
-    // ============================================================
-    // تثبيت APK
-    // ============================================================
-
     fun installApk(filePath: String) {
         try {
-            val apkFile = File(filePath)
-            if (!apkFile.exists()) {
+            val file = File(filePath)
+            if (!file.exists()) {
                 _updateState.value = UpdateUIState.Error(
                     manifest = null,
                     messageAr = "ملف التحديث غير موجود.",
@@ -338,23 +275,24 @@ class AppUpdateManager(
                 return
             }
 
+            // Check unknown sources installation permission on Android O+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val canInstall = context.packageManager.canRequestPackageInstalls()
-                if (!canInstall) {
-                    val settingsIntent = Intent(
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    val intent = Intent(
                         Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         Uri.parse("package:${context.packageName}")
-                    )
-                    settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(settingsIntent)
+                    ).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
                     return
                 }
             }
 
-            val apkUri = FileProvider.getUriForFile(
+            val apkUri: Uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
-                apkFile
+                file
             )
 
             val installIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -364,24 +302,19 @@ class AppUpdateManager(
             }
 
             context.startActivity(installIntent)
-            _updateState.value = UpdateUIState.Idle
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch installer.", e)
+            Log.e("AppUpdateManager", "Error launching APK installer: ${e.message}", e)
             _updateState.value = UpdateUIState.Error(
                 manifest = null,
-                messageAr = "تعذر فتح مثبت التطبيقات.",
-                messageEn = "Could not open Android installer."
+                messageAr = "تعذر فتح برنامج تثبيت التطبيقات. يرجى التحقق من الأذونات.",
+                messageEn = "Failed to launch package installer. Please check permissions."
             )
         }
     }
 
-    // ============================================================
-    // تخطي التحديث
-    // ============================================================
-
     fun skipVersion(versionCode: Long) {
-        preferences.edit().putLong(KEY_SKIPPED_VERSION, versionCode).apply()
+        skippedVersionCode = versionCode
         _updateState.value = UpdateUIState.Idle
     }
 
@@ -389,237 +322,28 @@ class AppUpdateManager(
         _updateState.value = UpdateUIState.Idle
     }
 
-    // ============================================================
-    // الشبكة
-    // ============================================================
-
     private fun isNetworkAvailable(): Boolean {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val activeNetwork = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private fun isWifiConnected(): Boolean {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val activeNetwork = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
     }
-
-    // ============================================================
-    // كشف الـ Wi-Fi تلقائياً
-    // ============================================================
-
-    private fun registerNetworkCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
-
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                // نتحقق من أن السياق لا يزال نشطاً
-                if (!scope.coroutineContext[Job]?.isActive ?: false) return
-                scope.launch {
-                    delay(1500)
-                    if (!isActive) return@launch
-                    val wifi = isWifiConnected()
-                    if (wifi && !lastWifiState) {
-                        lastWifiState = true
-                        Log.d(TAG, "Wi-Fi connected.")
-                        checkForUpdates()
-                    }
-                }
-            }
-
-            override fun onLost(network: Network) {
-                lastWifiState = isWifiConnected()
-            }
-
-            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                val wifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-                if (wifi && !lastWifiState) {
-                    lastWifiState = true
-                    if (!scope.coroutineContext[Job]?.isActive ?: false) return
-                    scope.launch {
-                        delay(1500)
-                        if (!isActive) return@launch
-                        checkForUpdates()
-                    }
-                } else if (!wifi) {
-                    lastWifiState = false
-                }
-            }
-        }
-
-        networkCallback = callback
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-
-        try {
-            manager.registerNetworkCallback(request, callback)
-        } catch (e: Exception) {
-            Log.e(TAG, "Could not register network callback.", e)
-        }
-    }
-
-    fun destroy() {
-        downloadJob?.cancel()
-        val callback = networkCallback ?: return
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                manager.unregisterNetworkCallback(callback)
-            } catch (_: Exception) {
-            }
-        }
-        networkCallback = null
-    }
-
-    // ============================================================
-    // جلب بيانات الإصدار من GitHub
-    // ============================================================
-
-    private fun fetchGitHubReleaseManifest(): UpdateManifest? {
-        val apiUrl = "https://api.github.com/repos/${UpdateConfig.GITHUB_REPOSITORY}/releases/latest"
-        val json = fetchText(apiUrl) ?: return null
-
-        return try {
-            val root = JSONObject(json)
-            val tag = root.optString("tag_name", "").trim()
-            val body = root.optString("body", "")
-            val assets = root.optJSONArray("assets") ?: return null
-
-            var apkUrl = ""
-            var apkSize = 0L
-
-            for (index in 0 until assets.length()) {
-                val asset = assets.getJSONObject(index)
-                val name = asset.optString("name", "")
-                if (name.endsWith(UpdateConfig.APK_EXTENSION, ignoreCase = true)) {
-                    apkUrl = asset.optString("browser_download_url", "")
-                    apkSize = asset.optLong("size", 0L)
-                    break
-                }
-            }
-
-            if (apkUrl.isBlank()) return null
-
-            val cleanVersion = tag.removePrefix("v").removePrefix("V").trim()
-            val versionCode = versionNameToVersionCode(cleanVersion)
-            if (versionCode <= 0) return null
-
-            val notes = if (body.isNotBlank()) {
-                body.lines().map { it.trim() }.filter { it.isNotBlank() }
-            } else {
-                listOf("يتوفر تحديث جديد للعبة.")
-            }
-
-            UpdateManifest(
-                versionCode = versionCode,
-                versionName = cleanVersion,
-                apkUrl = apkUrl,
-                size = if (apkSize > 0) {
-                    String.format(Locale.US, "%.1f MB", apkSize / (1024f * 1024f))
-                } else "",
-                releaseNotes = notes,
-                mandatory = false,
-                sha256 = null
-            )
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse GitHub release.", e)
-            null
-        }
-    }
-
-    private fun fetchText(urlString: String): String? {
-        var connection: HttpURLConnection? = null
-        return try {
-            val url = URL(urlString)
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = UpdateConfig.CONNECT_TIMEOUT
-            connection.readTimeout = UpdateConfig.READ_TIMEOUT
-            connection.instanceFollowRedirects = true
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("User-Agent", "HiddenNumber-Android-Updater")
-            connection.setRequestProperty("Accept", "application/vnd.github+json")
-
-            val response = connection.responseCode
-            if (response == HttpURLConnection.HTTP_OK) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                Log.w(TAG, "GitHub HTTP response: $response")
-                null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "GitHub request failed.", e)
-            null
-        } finally {
-            connection?.disconnect()
-        }
-    }
-
-    // ============================================================
-    // معالجة روابط التنزيل
-    // ============================================================
-
-    private fun resolveDownloadUrl(originalUrl: String): String {
-        var currentUrl = originalUrl
-        repeat(UpdateConfig.MAX_REDIRECTS) {
-            val connection = openConnection(currentUrl, followRedirects = false)
-            try {
-                val response = connection.responseCode
-                if (response == HttpURLConnection.HTTP_MOVED_TEMP ||
-                    response == HttpURLConnection.HTTP_MOVED_PERM ||
-                    response == HttpURLConnection.HTTP_SEE_OTHER ||
-                    response == 307 || response == 308
-                ) {
-                    val location = connection.getHeaderField("Location") ?: return currentUrl
-                    if (!location.startsWith("https://", ignoreCase = true)) {
-                        throw SecurityException("Insecure redirect blocked.")
-                    }
-                    currentUrl = location
-                } else {
-                    return currentUrl
-                }
-            } finally {
-                connection.disconnect()
-            }
-        }
-        return currentUrl
-    }
-
-    private fun openConnection(urlString: String, followRedirects: Boolean): HttpURLConnection {
-        val url = URL(urlString)
-        if (!url.protocol.equals("https", ignoreCase = true)) {
-            throw SecurityException("Only HTTPS connections are allowed.")
-        }
-
-        val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = UpdateConfig.CONNECT_TIMEOUT
-        connection.readTimeout = UpdateConfig.READ_TIMEOUT
-        connection.instanceFollowRedirects = followRedirects
-        connection.requestMethod = "GET"
-        connection.setRequestProperty("User-Agent", "HiddenNumber-Android-Updater")
-        return connection
-    }
-
-    // ============================================================
-    // إدارة الإصدارات
-    // ============================================================
 
     private fun getCurrentVersionCode(): Long {
         return try {
-            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                info.longVersionCode
+                packageInfo.longVersionCode
             } else {
                 @Suppress("DEPRECATION")
-                info.versionCode.toLong()
+                packageInfo.versionCode.toLong()
             }
         } catch (e: Exception) {
             1L
@@ -628,24 +352,51 @@ class AppUpdateManager(
 
     private fun getCurrentVersionName(): String {
         return try {
-            val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            info.versionName?.removePrefix("v")?.removePrefix("V") ?: "1.0.0"
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            packageInfo.versionName ?: "1.0.0"
         } catch (e: Exception) {
             "1.0.0"
         }
     }
 
-    private fun isUpdateAvailable(manifest: UpdateManifest, currentVersionCode: Long, currentVersionName: String): Boolean {
-        if (manifest.versionCode > currentVersionCode) return true
-        return isSemverNewer(manifest.versionName, currentVersionName)
+    private fun isUpdateAvailable(
+        manifest: UpdateManifest,
+        currentVersionCode: Long,
+        currentVersionName: String
+    ): Boolean {
+        val cleanNew = manifest.versionName.trim().removePrefix("v").removePrefix("V")
+        val cleanCurrent = currentVersionName.trim().removePrefix("v").removePrefix("V")
+
+        // If versions are identical, no update needed
+        if (cleanNew.equals(cleanCurrent, ignoreCase = true)) {
+            return false
+        }
+
+        // If installed app is on legacy template version "1.1.0" or "1.0.0" and GitHub has a release tag like "1.0.34"
+        if ((cleanCurrent == "1.1.0" || cleanCurrent == "1.0.0") && cleanNew != cleanCurrent) {
+            return true
+        }
+
+        // Compare versionCode if manifest versionCode is higher
+        if (manifest.versionCode > currentVersionCode) {
+            return true
+        }
+
+        // Semver comparison
+        return isSemverNewer(cleanNew, cleanCurrent)
     }
 
     private fun isSemverNewer(newVersion: String, currentVersion: String): Boolean {
-        val newParts = parseVersion(newVersion)
-        val currentParts = parseVersion(currentVersion)
-        val max = maxOf(newParts.size, currentParts.size)
+        val cleanNew = newVersion.trim().removePrefix("v").removePrefix("V").takeWhile { it.isDigit() || it == '.' }
+        val cleanCurrent = currentVersion.trim().removePrefix("v").removePrefix("V").takeWhile { it.isDigit() || it == '.' }
 
-        for (i in 0 until max) {
+        if (cleanNew.isEmpty() || cleanCurrent.isEmpty()) return false
+
+        val newParts = cleanNew.split(".").map { it.toIntOrNull() ?: 0 }
+        val currentParts = cleanCurrent.split(".").map { it.toIntOrNull() ?: 0 }
+
+        val maxLength = maxOf(newParts.size, currentParts.size)
+        for (i in 0 until maxLength) {
             val newPart = newParts.getOrElse(i) { 0 }
             val currentPart = currentParts.getOrElse(i) { 0 }
             if (newPart > currentPart) return true
@@ -654,36 +405,146 @@ class AppUpdateManager(
         return false
     }
 
-    private fun parseVersion(version: String): List<Int> {
-        return version.trim()
-            .removePrefix("v")
-            .removePrefix("V")
-            .takeWhile { it.isDigit() || it == '.' }
-            .split(".")
-            .mapNotNull { it.toIntOrNull() }
+    private fun fetchManifestJson(urlString: String): String? {
+        var currentUrl = urlString
+        var redirectCount = 0
+        var urlConnection: HttpURLConnection? = null
+
+        while (redirectCount < 10) {
+            try {
+                val url = URL(currentUrl)
+                urlConnection = url.openConnection() as HttpURLConnection
+                urlConnection.connectTimeout = 10000
+                urlConnection.readTimeout = 10000
+                urlConnection.instanceFollowRedirects = true
+                urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AppUpdateChecker)")
+                urlConnection.setRequestProperty("Accept", "application/json, text/plain, */*")
+                urlConnection.requestMethod = "GET"
+                urlConnection.connect()
+
+                val status = urlConnection.responseCode
+                if (status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                    status == HttpURLConnection.HTTP_MOVED_PERM ||
+                    status == HttpURLConnection.HTTP_SEE_OTHER ||
+                    status == 307 || status == 308) {
+                    val location = urlConnection.getHeaderField("Location")
+                    if (!location.isNullOrEmpty()) {
+                        currentUrl = location
+                        urlConnection.disconnect()
+                        redirectCount++
+                        continue
+                    }
+                }
+
+                if (status == HttpURLConnection.HTTP_OK) {
+                    return urlConnection.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    Log.w("AppUpdateManager", "Manifest fetch HTTP status: $status")
+                    return null
+                }
+            } catch (e: Exception) {
+                Log.e("AppUpdateManager", "Manifest fetch exception: ${e.message}")
+                return null
+            } finally {
+                urlConnection?.disconnect()
+            }
+        }
+        return null
     }
 
-    private fun versionNameToVersionCode(version: String): Int {
-        val parts = parseVersion(version)
-        if (parts.isEmpty()) return 0
+    private fun parseUpdateManifest(jsonString: String): UpdateManifest? {
+        return try {
+            val jsonObj = JSONObject(jsonString)
+            val versionCode = jsonObj.optInt("versionCode", 0)
+            val versionName = jsonObj.optString("versionName", "1.0.0")
+            val apkUrl = jsonObj.optString("apkUrl", "")
+            val size = jsonObj.optString("size", "")
+            val mandatory = jsonObj.optBoolean("mandatory", false)
+            val sha256 = if (jsonObj.has("sha256")) jsonObj.optString("sha256") else null
 
-        val major = parts.getOrElse(0) { 0 }
-        val minor = parts.getOrElse(1) { 0 }
-        val patch = parts.getOrElse(2) { 0 }
+            val notesList = mutableListOf<String>()
+            val notesArray: JSONArray? = jsonObj.optJSONArray("releaseNotes")
+            if (notesArray != null) {
+                for (i in 0 until notesArray.length()) {
+                    notesList.add(notesArray.getString(i))
+                }
+            }
 
-        return major * 1_000_000 + minor * 1_000 + patch
+            if (versionCode <= 0 || apkUrl.isEmpty()) return null
+
+            UpdateManifest(
+                versionCode = versionCode,
+                versionName = versionName,
+                apkUrl = apkUrl,
+                size = size,
+                releaseNotes = notesList,
+                mandatory = mandatory,
+                sha256 = sha256
+            )
+        } catch (e: Exception) {
+            null
+        }
     }
 
-    // ============================================================
-    // حساب SHA-256
-    // ============================================================
+    private fun fetchGitHubReleaseManifest(repoOwnerAndName: String): UpdateManifest? {
+        val apiUrl = "https://api.github.com/repos/$repoOwnerAndName/releases/latest"
+        val jsonString = fetchManifestJson(apiUrl) ?: return null
+        return try {
+            val jsonObj = JSONObject(jsonString)
+            val rawTag = jsonObj.optString("tag_name", "").trim()
+            val cleanTag = rawTag.removePrefix("v").removePrefix("V").trim()
+            val body = jsonObj.optString("body", "")
+
+            val assetsArray = jsonObj.optJSONArray("assets") ?: return null
+            var apkUrl = ""
+            var apkSize = ""
+            for (i in 0 until assetsArray.length()) {
+                val asset = assetsArray.getJSONObject(i)
+                val assetName = asset.optString("name", "")
+                if (assetName.endsWith(".apk", ignoreCase = true)) {
+                    apkUrl = asset.optString("browser_download_url", "")
+                    val bytes = asset.optLong("size", 0L)
+                    if (bytes > 0) {
+                        apkSize = String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f))
+                    }
+                    break
+                }
+            }
+
+            if (apkUrl.isEmpty()) return null
+
+            val numericParts = cleanTag.takeWhile { it.isDigit() || it == '.' }.split(".")
+            val major = numericParts.getOrNull(0)?.toIntOrNull() ?: 1
+            val minor = numericParts.getOrNull(1)?.toIntOrNull() ?: 0
+            val patch = numericParts.getOrNull(2)?.toIntOrNull() ?: 0
+            val versionCode = major * 10000 + minor * 100 + patch
+
+            val notes = if (body.isNotBlank()) {
+                body.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+            } else {
+                listOf("تحديث جديد متوفر على GitHub Releases ($cleanTag)")
+            }
+
+            UpdateManifest(
+                versionCode = versionCode,
+                versionName = if (cleanTag.isNotEmpty()) cleanTag else "1.0.1",
+                apkUrl = apkUrl,
+                size = apkSize,
+                releaseNotes = notes,
+                mandatory = false
+            )
+        } catch (e: Exception) {
+            Log.e("AppUpdateManager", "Failed to parse GitHub release JSON: ${e.message}")
+            null
+        }
+    }
 
     private fun calculateSha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(16 * 1024)
+        file.inputStream().use { inputStream ->
+            val buffer = ByteArray(8192)
             var bytesRead: Int
-            while (input.read(buffer).also { bytesRead = it } != -1) {
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                 digest.update(buffer, 0, bytesRead)
             }
         }
