@@ -100,9 +100,10 @@ fun GameplayScreen(
     lastReactionEmoji: String?
 ) {
     val context = LocalContext.current
-    val listState = rememberLazyListState()
+    val myListState = rememberLazyListState()
+    val opponentListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    var selectedBoardTab by remember { mutableStateOf(0) } // 0 = My Board, 1 = Opponent Board
+    var selectedBoardTab by remember { mutableStateOf(0) } // 0 = Dual Side-By-Side, 1 = My Board, 2 = Opponent Board
 
     val shakeOffsetX = remember { Animatable(0f) }
     var activeFeedbackAttempt by remember { mutableStateOf<GuessAttempt?>(null) }
@@ -165,11 +166,15 @@ fun GameplayScreen(
         }
     }
 
-    val activeList = if (selectedBoardTab == 0) myAttempts else opponentAttempts
+    LaunchedEffect(myAttempts.size) {
+        if (myAttempts.isNotEmpty()) {
+            myListState.animateScrollToItem(myAttempts.size - 1)
+        }
+    }
 
-    LaunchedEffect(activeList.size) {
-        if (activeList.isNotEmpty()) {
-            listState.animateScrollToItem(activeList.size - 1)
+    LaunchedEffect(opponentAttempts.size) {
+        if (opponentAttempts.isNotEmpty()) {
+            opponentListState.animateScrollToItem(opponentAttempts.size - 1)
         }
     }
 
@@ -274,29 +279,29 @@ fun GameplayScreen(
                 }
             }
 
-            // Dual Boards Tab Switcher (لوحة تخميناتي / لوحة الخصم)
+            // Dual Boards Tab Switcher (عرض مزدوج / تخميناتي / الخصم)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(DarkSurfaceGlass)
                     .border(1.dp, GlassBorder, RoundedCornerShape(12.dp))
-                    .padding(4.dp)
+                    .padding(3.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(1.2f)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (selectedBoardTab == 0) NeonCyan.copy(0.25f) else Color.Transparent)
+                        .background(if (selectedBoardTab == 0) NeonEmerald.copy(0.25f) else Color.Transparent)
                         .clickable { selectedBoardTab = 0 }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (languageAr) "لوحة تخميناتي (${myAttempts.size}) 🎯" else "My Board (${myAttempts.size}) 🎯",
-                        fontSize = 13.sp,
+                        text = if (languageAr) "👥 جنباً إلى جنب" else "👥 Side-by-Side",
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (selectedBoardTab == 0) NeonCyan else TextPrimary
+                        color = if (selectedBoardTab == 0) NeonEmerald else TextPrimary
                     )
                 }
 
@@ -304,49 +309,153 @@ fun GameplayScreen(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (selectedBoardTab == 1) NeonMagenta.copy(0.25f) else Color.Transparent)
+                        .background(if (selectedBoardTab == 1) NeonCyan.copy(0.25f) else Color.Transparent)
                         .clickable { selectedBoardTab = 1 }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (languageAr) "لوحة الخصم (${opponentAttempts.size}) 👁️" else "Opponent Board (${opponentAttempts.size}) 👁️",
-                        fontSize = 13.sp,
+                        text = if (languageAr) "🎯 تخميناتي (${myAttempts.size})" else "My Board (${myAttempts.size})",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (selectedBoardTab == 1) NeonMagenta else TextPrimary
+                        color = if (selectedBoardTab == 1) NeonCyan else TextPrimary
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (selectedBoardTab == 2) NeonMagenta.copy(0.25f) else Color.Transparent)
+                        .clickable { selectedBoardTab = 2 }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (languageAr) "👁️ الخصم (${opponentAttempts.size})" else "Opponent (${opponentAttempts.size})",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (selectedBoardTab == 2) NeonMagenta else TextPrimary
                     )
                 }
             }
 
-            // Attempts Log List for Selected Board
+            // Attempts Log List / Dual Side-By-Side View
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                if (activeList.isEmpty()) {
-                    Box(
+                if (selectedBoardTab == 0) {
+                    // Side-By-Side View
+                    Row(
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = if (selectedBoardTab == 0) {
-                                if (languageAr) "أدخل تخمينك الأول ضد رقم الخصم! 🚀" else "Enter your first guess! 🚀"
+                        // Left Column: My Board
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(DarkSurfaceGlass)
+                                .border(1.dp, NeonCyan.copy(0.4f), RoundedCornerShape(12.dp))
+                                .padding(6.dp)
+                        ) {
+                            Text(
+                                text = if (languageAr) "تخميناتي (${myAttempts.size}) 🎯" else "My Board (${myAttempts.size})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NeonCyan,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            if (myAttempts.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = if (languageAr) "اكتب تخمينك 🚀" else "Type guess 🚀",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
+                                }
                             } else {
-                                if (languageAr) "لم يقم الخصم بأي تخمين بعد ⏳" else "No guesses from opponent yet ⏳"
-                            },
-                            fontSize = 14.sp,
-                            color = TextSecondary
-                        )
+                                LazyColumn(
+                                    state = myListState,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    items(myAttempts) { attempt ->
+                                        AttemptLogCard(attempt = attempt, languageAr = languageAr, compact = true)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Right Column: Opponent Board
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(DarkSurfaceGlass)
+                                .border(1.dp, NeonMagenta.copy(0.4f), RoundedCornerShape(12.dp))
+                                .padding(6.dp)
+                        ) {
+                            Text(
+                                text = if (languageAr) "تخمينات الخصم (${opponentAttempts.size}) 👁️" else "Opponent (${opponentAttempts.size})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NeonMagenta,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            if (opponentAttempts.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = if (languageAr) "في انتظار الخصم ⏳" else "Waiting... ⏳",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                            } else {
+                                LazyColumn(
+                                    state = opponentListState,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    items(opponentAttempts) { attempt ->
+                                        AttemptLogCard(attempt = attempt, languageAr = languageAr, compact = true)
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
-                    LazyColumn(
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(activeList) { attempt ->
-                            AttemptLogCard(attempt = attempt, languageAr = languageAr)
+                    val activeList = if (selectedBoardTab == 1) myAttempts else opponentAttempts
+                    val activeState = if (selectedBoardTab == 1) myListState else opponentListState
+
+                    if (activeList.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (selectedBoardTab == 1) {
+                                    if (languageAr) "أدخل تخمينك الأول ضد رقم الخصم! 🚀" else "Enter your first guess! 🚀"
+                                } else {
+                                    if (languageAr) "لم يقم الخصم بأي تخمين بعد ⏳" else "No guesses from opponent yet ⏳"
+                                },
+                                fontSize = 14.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = activeState,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(activeList) { attempt ->
+                                AttemptLogCard(attempt = attempt, languageAr = languageAr, compact = false)
+                            }
                         }
                     }
                 }
@@ -505,7 +614,8 @@ fun GameplayScreen(
 @Composable
 fun AttemptLogCard(
     attempt: GuessAttempt,
-    languageAr: Boolean
+    languageAr: Boolean,
+    compact: Boolean = false
 ) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
@@ -518,11 +628,11 @@ fun AttemptLogCard(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(if (compact) 26.dp else 36.dp)
                         .clip(CircleShape)
                         .background(if (attempt.isWin) NeonEmerald.copy(0.2f) else NeonCyan.copy(0.2f))
                         .border(1.dp, if (attempt.isWin) NeonEmerald else NeonCyan, CircleShape),
@@ -530,7 +640,7 @@ fun AttemptLogCard(
                 ) {
                     Text(
                         text = "#${attempt.attemptNumber}",
-                        fontSize = 13.sp,
+                        fontSize = if (compact) 10.sp else 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (attempt.isWin) NeonEmerald else NeonCyan
                     )
@@ -539,29 +649,31 @@ fun AttemptLogCard(
                 Column {
                     Text(
                         text = attempt.guessedNumber,
-                        fontSize = 20.sp,
+                        fontSize = if (compact) 15.sp else 20.sp,
                         fontWeight = FontWeight.Black,
                         color = if (attempt.isWin) NeonEmerald else TextPrimary,
-                        letterSpacing = 2.sp
+                        letterSpacing = if (compact) 1.sp else 2.sp
                     )
-                    Text(
-                        text = attempt.playerName,
-                        fontSize = 11.sp,
-                        color = TextSecondary
-                    )
+                    if (!compact) {
+                        Text(
+                            text = attempt.playerName,
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
                 }
             }
 
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(if (attempt.isWin) NeonEmerald.copy(0.2f) else DarkSurfaceGlass)
-                    .border(1.dp, if (attempt.isWin) NeonEmerald else NeonMagenta.copy(0.5f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .border(1.dp, if (attempt.isWin) NeonEmerald else NeonMagenta.copy(0.5f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = if (compact) 6.dp else 10.dp, vertical = if (compact) 4.dp else 6.dp)
             ) {
                 Text(
                     text = if (languageAr) attempt.clueTextAr else attempt.clueTextEn,
-                    fontSize = 12.sp,
+                    fontSize = if (compact) 10.sp else 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (attempt.isWin) NeonEmerald else TextPrimary
                 )

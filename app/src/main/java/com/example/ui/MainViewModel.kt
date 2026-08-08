@@ -113,38 +113,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun checkSavedSession() {
         val savedSession = secureTokenManager.getSession()
         val isGuestChoice = prefs.getBoolean("is_guest_mode", false)
+        val isRegistered = prefs.getBoolean("isProfileRegistered", false)
+        val localProfile = loadSavedProfile()
 
         if (savedSession != null) {
             viewModelScope.launch {
                 _authLoading.value = true
-                val profile = supabaseProfileService.getProfile(savedSession.userId, savedSession.accessToken)
-                if (profile != null) {
-                    _playerProfile.value = profile
-                    saveProfileToPrefs(profile)
-                    _currentSession.value = savedSession
-                    _currentScreen.value = AppScreen.HOME
-                } else if (savedSession.refreshToken.isNotEmpty()) {
-                    val refreshResult = supabaseAuthService.refreshToken(savedSession.refreshToken)
-                    if (refreshResult is com.example.data.supabase.AuthResult.Success) {
-                        val newSession = refreshResult.data
-                        saveSessionToPrefs(newSession)
-                        _currentSession.value = newSession
-                        val fetched = supabaseProfileService.getProfile(newSession.userId, newSession.accessToken)
-                        if (fetched != null) {
-                            _playerProfile.value = fetched
-                            saveProfileToPrefs(fetched)
-                        }
+                try {
+                    val profile = supabaseProfileService.getProfile(savedSession.userId, savedSession.accessToken)
+                    if (profile != null) {
+                        val finalProfile = profile.copy(
+                            avatarCustomUri = profile.avatarCustomUri ?: localProfile.avatarCustomUri
+                        )
+                        _playerProfile.value = finalProfile
+                        saveProfileToPrefs(finalProfile)
+                        _currentSession.value = savedSession
                         _currentScreen.value = AppScreen.HOME
+                    } else if (savedSession.refreshToken.isNotEmpty()) {
+                        val refreshResult = supabaseAuthService.refreshToken(savedSession.refreshToken)
+                        if (refreshResult is com.example.data.supabase.AuthResult.Success) {
+                            val newSession = refreshResult.data
+                            saveSessionToPrefs(newSession)
+                            _currentSession.value = newSession
+                            val fetched = supabaseProfileService.getProfile(newSession.userId, newSession.accessToken)
+                            val finalProfile = (fetched ?: localProfile).copy(
+                                avatarCustomUri = fetched?.avatarCustomUri ?: localProfile.avatarCustomUri
+                            )
+                            _playerProfile.value = finalProfile
+                            saveProfileToPrefs(finalProfile)
+                            _currentScreen.value = AppScreen.HOME
+                        } else if (refreshResult is com.example.data.supabase.AuthResult.Error && (refreshResult.messageAr.contains("401") || refreshResult.messageEn.contains("401"))) {
+                            clearSessionFromPrefs()
+                            _currentScreen.value = AppScreen.LOGIN
+                        } else {
+                            // Offline fallback: keep saved session and go to HOME
+                            _currentSession.value = savedSession
+                            _playerProfile.value = localProfile
+                            _currentScreen.value = AppScreen.HOME
+                        }
                     } else {
-                        clearSessionFromPrefs()
-                        _currentScreen.value = AppScreen.LOGIN
+                        // Offline fallback: keep saved session and go to HOME
+                        _currentSession.value = savedSession
+                        _playerProfile.value = localProfile
+                        _currentScreen.value = AppScreen.HOME
                     }
-                } else {
-                    _currentScreen.value = AppScreen.LOGIN
+                } catch (e: Exception) {
+                    // Offline fallback on network exception
+                    _currentSession.value = savedSession
+                    _playerProfile.value = localProfile
+                    _currentScreen.value = AppScreen.HOME
+                } finally {
+                    _authLoading.value = false
                 }
-                _authLoading.value = false
             }
-        } else if (isGuestChoice) {
+        } else if (isGuestChoice || isRegistered) {
+            _playerProfile.value = localProfile
             _currentScreen.value = AppScreen.HOME
         } else {
             _currentScreen.value = AppScreen.LOGIN
@@ -619,13 +642,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 supabaseProfileService.getProfile(session.userId, session.accessToken)
             } else null
 
-            val finalProfile = profile ?: localAuthManager.getProfile(session.userId) ?: PlayerProfile(
+            val finalProfile = (profile ?: localAuthManager.getProfile(session.userId) ?: PlayerProfile(
                 id = session.userId,
                 username = session.username.ifEmpty { email.substringBefore("@") },
                 displayName = session.displayName.ifEmpty { session.username.ifEmpty { email.substringBefore("@") } },
                 email = email,
                 isGuest = false
-            )
+            )).run {
+                copy(avatarCustomUri = avatarCustomUri ?: loadSavedProfile().avatarCustomUri)
+            }
 
             _playerProfile.value = finalProfile
             saveProfileToPrefs(finalProfile)

@@ -195,12 +195,14 @@ class SupabaseProfileService {
 
         // Parse avatar string into avatarId / customUri
         val avatarId = avatarStr.toIntOrNull() ?: 1
+        val customUri = if (avatarStr.length > 20 || avatarStr.startsWith("data:") || avatarStr.startsWith("http") || avatarStr.startsWith("file:")) avatarStr else null
 
         return PlayerProfile(
             id = id,
             username = username,
             displayName = if (displayName.isNotEmpty()) displayName else username,
             avatarId = avatarId,
+            avatarCustomUri = customUri,
             level = level,
             xp = xp,
             coins = coins,
