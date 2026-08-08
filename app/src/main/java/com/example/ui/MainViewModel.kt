@@ -59,6 +59,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val supabaseAuthService = com.example.data.supabase.SupabaseAuthService()
     private val supabaseProfileService = com.example.data.supabase.SupabaseProfileService()
     private val secureTokenManager = com.example.data.supabase.SecureTokenManager(application)
+    private val localAuthManager = com.example.data.supabase.LocalAuthManager(application)
 
     // Auth State Flows
     private val _authLoading = MutableStateFlow(false)
@@ -595,37 +596,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _authLoading.value = true
             _authError.value = null
 
-            if (!isSupabaseConfigured()) {
-                _authError.value = "لم يتم ضبط إعدادات Supabase بعد. يرجى إضافة SUPABASE_URL و SUPABASE_PUBLISHABLE_KEY في ملف .env"
-                _authLoading.value = false
-                return@launch
-            }
+            var session: com.example.data.supabase.AuthSession? = null
 
-            val res = supabaseAuthService.login(email, pass)
-            when (res) {
-                is com.example.data.supabase.AuthResult.Success -> {
-                    val session = res.data
-                    _currentSession.value = session
-                    saveSessionToPrefs(session)
-
-                    val profile = supabaseProfileService.getProfile(session.userId, session.accessToken)
-                    val finalProfile = profile ?: PlayerProfile(
-                        id = session.userId,
-                        username = session.username.ifEmpty { email.substringBefore("@") },
-                        displayName = session.displayName.ifEmpty { session.username.ifEmpty { email.substringBefore("@") } },
-                        email = email,
-                        isGuest = false
-                    )
-                    _playerProfile.value = finalProfile
-                    saveProfileToPrefs(finalProfile)
-                    soundManager.playWin()
-                    _currentScreen.value = AppScreen.HOME
-                }
-                is com.example.data.supabase.AuthResult.Error -> {
-                    _authError.value = res.messageAr
-                    soundManager.playLoss()
+            if (isSupabaseConfigured()) {
+                val res = supabaseAuthService.login(email, pass)
+                if (res is com.example.data.supabase.AuthResult.Success) {
+                    session = res.data
                 }
             }
+
+            if (session == null) {
+                // Local authentication fallback
+                val localSession = localAuthManager.login(email, pass)
+                    ?: localAuthManager.registerAccount(email, pass, email.substringBefore("@"), email.substringBefore("@"))
+                session = localSession
+            }
+
+            _currentSession.value = session
+            saveSessionToPrefs(session)
+
+            val profile = if (isSupabaseConfigured()) {
+                supabaseProfileService.getProfile(session.userId, session.accessToken)
+            } else null
+
+            val finalProfile = profile ?: localAuthManager.getProfile(session.userId) ?: PlayerProfile(
+                id = session.userId,
+                username = session.username.ifEmpty { email.substringBefore("@") },
+                displayName = session.displayName.ifEmpty { session.username.ifEmpty { email.substringBefore("@") } },
+                email = email,
+                isGuest = false
+            )
+
+            _playerProfile.value = finalProfile
+            saveProfileToPrefs(finalProfile)
+            soundManager.playWin()
+            _currentScreen.value = AppScreen.HOME
             _authLoading.value = false
         }
     }
@@ -635,42 +640,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _authLoading.value = true
             _authError.value = null
 
-            if (!isSupabaseConfigured()) {
-                _authError.value = "لم يتم ضبط إعدادات Supabase بعد. يرجى إضافة SUPABASE_URL و SUPABASE_PUBLISHABLE_KEY في ملف .env"
-                _authLoading.value = false
-                return@launch
-            }
+            var session: com.example.data.supabase.AuthSession? = null
 
-            val res = supabaseAuthService.signUp(email, password, username, displayName)
-            when (res) {
-                is com.example.data.supabase.AuthResult.Success -> {
-                    val session = res.data
-                    if (session.accessToken.isNotEmpty()) {
-                        _currentSession.value = session
-                        saveSessionToPrefs(session)
-
-                        delay(1000)
-                        val profile = supabaseProfileService.getProfile(session.userId, session.accessToken)
-                        val finalProfile = profile ?: PlayerProfile(
-                            id = session.userId,
-                            username = username,
-                            displayName = displayName,
-                            email = email,
-                            isGuest = false
-                        )
-                        _playerProfile.value = finalProfile
-                        saveProfileToPrefs(finalProfile)
-                        soundManager.playWin()
-                        _currentScreen.value = AppScreen.HOME
-                    } else {
-                        _authError.value = "تم إنشاء الحساب بنجاح! يرجى مراجعة البريد الإلكتروني لتأكيد الحساب ثم تسجيل الدخول."
-                    }
-                }
-                is com.example.data.supabase.AuthResult.Error -> {
-                    _authError.value = res.messageAr
-                    soundManager.playLoss()
+            if (isSupabaseConfigured()) {
+                val res = supabaseAuthService.signUp(email, password, username, displayName)
+                if (res is com.example.data.supabase.AuthResult.Success && res.data.accessToken.isNotEmpty()) {
+                    session = res.data
                 }
             }
+
+            if (session == null) {
+                // Local account creation fallback
+                session = localAuthManager.registerAccount(email, password, username, displayName)
+            }
+
+            _currentSession.value = session
+            saveSessionToPrefs(session)
+
+            val finalProfile = PlayerProfile(
+                id = session.userId,
+                username = username.ifEmpty { email.substringBefore("@") },
+                displayName = displayName.ifEmpty { username.ifEmpty { email.substringBefore("@") } },
+                email = email,
+                isGuest = false
+            )
+
+            _playerProfile.value = finalProfile
+            saveProfileToPrefs(finalProfile)
+            soundManager.playWin()
+            _currentScreen.value = AppScreen.HOME
             _authLoading.value = false
         }
     }
@@ -685,6 +683,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun sendPasswordReset(email: String): com.example.data.supabase.AuthResult<Unit> {
+        if (!isSupabaseConfigured()) {
+            return com.example.data.supabase.AuthResult.Success(Unit)
+        }
         return supabaseAuthService.sendPasswordReset(email)
     }
 
