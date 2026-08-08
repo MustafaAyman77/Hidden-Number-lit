@@ -48,7 +48,7 @@ class LocalAuthManager(context: Context) {
         return try {
             val obj = JSONObject(jsonStr)
             val storedPassword = obj.optString("password", "")
-            if (storedPassword == password || password.isBlank()) {
+            if (storedPassword.isNotEmpty() && storedPassword == password) {
                 val userId = obj.optString("userId", "usr_local")
                 val username = obj.optString("username", cleanEmail.substringBefore("@"))
                 val displayName = obj.optString("displayName", username)
