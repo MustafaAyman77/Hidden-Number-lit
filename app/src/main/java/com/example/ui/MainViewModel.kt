@@ -105,6 +105,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         checkSavedSession()
     }
 
+    fun isSupabaseConfigured(): Boolean {
+        return com.example.data.supabase.SupabaseConfig.isConfigured()
+    }
+
     private fun checkSavedSession() {
         val savedSession = secureTokenManager.getSession()
         val isGuestChoice = prefs.getBoolean("is_guest_mode", false)
@@ -590,6 +594,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _authLoading.value = true
             _authError.value = null
+
+            if (!isSupabaseConfigured()) {
+                _authError.value = "لم يتم ضبط إعدادات Supabase بعد. يرجى إضافة SUPABASE_URL و SUPABASE_PUBLISHABLE_KEY في ملف .env"
+                _authLoading.value = false
+                return@launch
+            }
+
             val res = supabaseAuthService.login(email, pass)
             when (res) {
                 is com.example.data.supabase.AuthResult.Success -> {
@@ -623,6 +634,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _authLoading.value = true
             _authError.value = null
+
+            if (!isSupabaseConfigured()) {
+                _authError.value = "لم يتم ضبط إعدادات Supabase بعد. يرجى إضافة SUPABASE_URL و SUPABASE_PUBLISHABLE_KEY في ملف .env"
+                _authLoading.value = false
+                return@launch
+            }
+
             val res = supabaseAuthService.signUp(email, password, username, displayName)
             when (res) {
                 is com.example.data.supabase.AuthResult.Success -> {
@@ -658,7 +676,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun isUsernameTaken(username: String): Boolean {
-        return supabaseProfileService.isUsernameTaken(username)
+        if (!isSupabaseConfigured()) return false
+        return try {
+            supabaseProfileService.isUsernameTaken(username)
+        } catch (e: Exception) {
+            false
+        }
     }
 
     suspend fun sendPasswordReset(email: String): com.example.data.supabase.AuthResult<Unit> {

@@ -212,8 +212,6 @@ fun LoginScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
                     // Go to Register Screen
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
