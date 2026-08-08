@@ -26,7 +26,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
@@ -36,7 +39,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,7 +78,7 @@ fun ProfileRegistrationScreen(
     profile: PlayerProfile,
     languageAr: Boolean
 ) {
-    var username by remember(profile.username) { mutableStateOf(profile.username) }
+    var displayName by remember(profile.displayName) { mutableStateOf(profile.displayName) }
     var selectedAvatarId by remember(profile.avatarId) { mutableStateOf(profile.avatarId) }
     var customUri by remember(profile.avatarCustomUri) { mutableStateOf(profile.avatarCustomUri) }
     var showSavedMessage by remember { mutableStateOf(false) }
@@ -133,25 +135,28 @@ fun ProfileRegistrationScreen(
 
                     Column {
                         Text(
-                            text = if (languageAr) "تسجيل وإدارة الحساب 👤" else "Account & Profile Registration 👤",
+                            text = if (languageAr) "ملف اللاعب والبيانات 👤" else "Player Profile & Account 👤",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Black,
                             color = TextPrimary,
                             letterSpacing = 0.3.sp
                         )
                         Text(
-                            text = if (languageAr) "خصص اسمك المستعار وصورتك لتمييز حسابك في اللعبة" else "Customize your username and avatar for the game",
+                            text = if (profile.isGuest)
+                                (if (languageAr) "حساب ضيف محلي" else "Guest Account")
+                            else
+                                (if (languageAr) "حساب أونلاين موثق (Supabase)" else "Online Verified Account"),
                             fontSize = 11.sp,
-                            color = TextSecondary
+                            color = if (profile.isGuest) NeonYellow else NeonEmerald
                         )
                     }
                 }
 
-                // Profile Level & Progress Hero Card
+                // Profile Hero Card
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
                     glowEffect = true,
-                    borderColor = NeonCyan
+                    borderColor = if (profile.isGuest) NeonYellow else NeonCyan
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Row(
@@ -172,10 +177,15 @@ fun ProfileRegistrationScreen(
 
                                 Column {
                                     Text(
-                                        text = username.ifEmpty { if (languageAr) "لاعب جديد" else "New Player" },
+                                        text = displayName.ifEmpty { profile.username },
                                         fontSize = 18.sp,
                                         fontWeight = FontWeight.Black,
                                         color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "@${profile.username}",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -192,6 +202,20 @@ fun ProfileRegistrationScreen(
                                             fontWeight = FontWeight.Bold,
                                             color = NeonYellow
                                         )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.MonetizationOn,
+                                            contentDescription = "Coins",
+                                            tint = NeonYellow,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${profile.coins}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = NeonYellow
+                                        )
                                     }
                                 }
                             }
@@ -199,16 +223,34 @@ fun ProfileRegistrationScreen(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(NeonEmerald.copy(0.18f))
-                                    .border(1.dp, NeonEmerald.copy(0.4f), RoundedCornerShape(10.dp))
+                                    .background(
+                                        if (profile.isGuest) NeonYellow.copy(0.18f) else NeonEmerald.copy(0.18f)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (profile.isGuest) NeonYellow.copy(0.4f) else NeonEmerald.copy(0.4f),
+                                        RoundedCornerShape(10.dp)
+                                    )
                                     .padding(horizontal = 8.dp, vertical = 5.dp)
                             ) {
-                                Text(
-                                    text = if (languageAr) "محفوظ محلياً 🔒" else "Saved 🔒",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = NeonEmerald
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = if (profile.isGuest) Icons.Default.Person else Icons.Default.CloudDone,
+                                        contentDescription = null,
+                                        tint = if (profile.isGuest) NeonYellow else NeonEmerald,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (profile.isGuest)
+                                            (if (languageAr) "ضيف 🔒" else "Guest 🔒")
+                                        else
+                                            (if (languageAr) "أونلاين ☁️" else "Online ☁️"),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (profile.isGuest) NeonYellow else NeonEmerald
+                                    )
+                                }
                             }
                         }
 
@@ -243,7 +285,7 @@ fun ProfileRegistrationScreen(
                             )
                         }
 
-                        // Stats Grid (Wins / Losses / Rate)
+                        // Stats Grid (Wins / Losses / Draws / Total Games / Rate)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -257,23 +299,25 @@ fun ProfileRegistrationScreen(
                                 value = "${profile.wins}",
                                 color = NeonEmerald
                             )
-                            Box(
-                                modifier = Modifier
-                                    .width(1.dp)
-                                    .height(30.dp)
-                                    .background(GlassBorder)
-                            )
+                            Box(modifier = Modifier.width(1.dp).height(30.dp).background(GlassBorder))
                             ProfileStatCard(
                                 title = if (languageAr) "الخسائر" else "Losses",
                                 value = "${profile.losses}",
                                 color = NeonYellow
                             )
-                            Box(
-                                modifier = Modifier
-                                    .width(1.dp)
-                                    .height(30.dp)
-                                    .background(GlassBorder)
+                            Box(modifier = Modifier.width(1.dp).height(30.dp).background(GlassBorder))
+                            ProfileStatCard(
+                                title = if (languageAr) "التعادلات" else "Draws",
+                                value = "${profile.draws}",
+                                color = Color.LightGray
                             )
+                            Box(modifier = Modifier.width(1.dp).height(30.dp).background(GlassBorder))
+                            ProfileStatCard(
+                                title = if (languageAr) "المباريات" else "Games",
+                                value = "${profile.totalGames}",
+                                color = NeonCyan
+                            )
+                            Box(modifier = Modifier.width(1.dp).height(30.dp).background(GlassBorder))
                             ProfileStatCard(
                                 title = if (languageAr) "نسبة الفوز" else "Win Rate",
                                 value = "${profile.winRate}%",
@@ -283,35 +327,55 @@ fun ProfileRegistrationScreen(
                     }
                 }
 
-                // Registration Username Section
+                // Guest Banner or Online Email Info
+                if (profile.isGuest) {
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        borderColor = NeonYellow
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = if (languageAr)
+                                    "أنت تلعب كـ ضيف حالياً. يمكنك إنشاء حساب Supabase لحفظ إحصائياتك أونلاين واسترجاعها في أي وقت!"
+                                else
+                                    "You are playing as Guest. Create a Supabase account to save and sync your stats online!",
+                                fontSize = 12.sp,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                            CyberButton(
+                                text = if (languageAr) "تسجيل الدخول / إنشاء حساب 🚀" else "Login / Register 🚀",
+                                onClick = {
+                                    viewModel.navigateTo(AppScreen.LOGIN)
+                                },
+                                primaryColor = NeonYellow,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+
+                // Edit Display Name Section
                 GlassCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (languageAr) "الاسم المستعار / الحساب:" else "Username / Display Name:",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = NeonCyan
-                            )
-                            Text(
-                                text = "${username.length}/20",
-                                fontSize = 10.sp,
-                                color = if (username.length > 20) NeonMagenta else TextSecondary
-                            )
-                        }
+                        Text(
+                            text = if (languageAr) "تعديل الاسم الظاهر (Display Name):" else "Edit Display Name:",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonCyan
+                        )
 
                         OutlinedTextField(
-                            value = username,
-                            onValueChange = { if (it.length <= 20) username = it },
+                            value = displayName,
+                            onValueChange = { if (it.length <= 25) displayName = it },
                             placeholder = {
                                 Text(
-                                    text = if (languageAr) "أدخل اسمك المستعار..." else "Enter username...",
+                                    text = if (languageAr) "أدخل الاسم الظاهر..." else "Enter display name...",
                                     color = TextSecondary,
                                     fontSize = 13.sp
                                 )
@@ -385,7 +449,7 @@ fun ProfileRegistrationScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (languageAr) "تم حفظ بيانات التسجيل والصورة بنجاح! 💾" else "Registration data saved successfully! 💾",
+                            text = if (languageAr) "تم تحديث بيانات الملف الشخصي بنجاح! 💾" else "Profile updated successfully! 💾",
                             color = NeonEmerald,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
@@ -394,12 +458,12 @@ fun ProfileRegistrationScreen(
                     }
                 }
 
-                // Save & Register Button
+                // Save Profile Button
                 CyberButton(
-                    text = if (languageAr) "حفظ الحساب وتأكيد التسجيل 💾" else "Save & Confirm Registration 💾",
+                    text = if (languageAr) "حفظ التغييرات 💾" else "Save Changes 💾",
                     onClick = {
                         viewModel.updateProfileFull(
-                            newUsername = username.ifBlank { if (languageAr) "لاعب جديد" else "New Player" },
+                            newUsername = displayName.ifBlank { profile.username },
                             newAvatarId = selectedAvatarId,
                             newCustomUri = customUri
                         )
@@ -407,12 +471,23 @@ fun ProfileRegistrationScreen(
                         coroutineScope.launch {
                             delay(1000)
                             showSavedMessage = false
-                            viewModel.navigateTo(AppScreen.HOME)
                         }
                     },
                     primaryColor = NeonEmerald,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // Logout Button (for logged-in users or switching accounts)
+                if (!profile.isGuest) {
+                    CyberButton(
+                        text = if (languageAr) "تسجيل الخروج 🚪" else "Logout 🚪",
+                        onClick = {
+                            viewModel.logoutSupabase()
+                        },
+                        primaryColor = NeonMagenta,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -443,4 +518,3 @@ private fun ProfileStatCard(
         )
     }
 }
-

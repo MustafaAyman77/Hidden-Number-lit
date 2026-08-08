@@ -23,13 +23,18 @@ enum class AiDifficulty(val titleAr: String, val titleEn: String, val colorHex: 
 data class PlayerProfile(
     val id: String = "player_${System.currentTimeMillis() % 10000}",
     val username: String = "اللاعب الأسطوري",
+    val displayName: String = username,
     val avatarId: Int = 1,
     val avatarCustomUri: String? = null,
     val level: Int = 1,
     val xp: Int = 150,
+    val coins: Int = 0,
     val wins: Int = 0,
     val losses: Int = 0,
-    val totalGames: Int = 0
+    val draws: Int = 0,
+    val totalGames: Int = 0,
+    val email: String? = null,
+    val isGuest: Boolean = true
 ) {
     val winRate: Int
         get() = if (totalGames > 0) (wins * 100) / totalGames else 0

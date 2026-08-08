@@ -34,7 +34,7 @@ import org.json.JSONObject
 import kotlin.random.Random
 
 enum class AppScreen {
-    HOME, CREATE_JOIN, LOBBY, SECRET_SETUP, GAMEPLAY, RESULTS, SETTINGS, HISTORY, PROFILE
+    HOME, CREATE_JOIN, LOBBY, SECRET_SETUP, GAMEPLAY, RESULTS, SETTINGS, HISTORY, PROFILE, LOGIN, REGISTER
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,6 +55,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val updateState = appUpdateManager.updateState
     private val aiBotEngine = AiBotEngine()
 
+    // Supabase Auth & Profile Services
+    private val supabaseAuthService = com.example.data.supabase.SupabaseAuthService()
+    private val supabaseProfileService = com.example.data.supabase.SupabaseProfileService()
+    private val secureTokenManager = com.example.data.supabase.SecureTokenManager(application)
+
+    // Auth State Flows
+    private val _authLoading = MutableStateFlow(false)
+    val authLoading: StateFlow<Boolean> = _authLoading.asStateFlow()
+
+    private val _authError = MutableStateFlow<String?>(null)
+    val authError: StateFlow<String?> = _authError.asStateFlow()
+
+    private val _currentSession = MutableStateFlow<com.example.data.supabase.AuthSession?>(null)
+    val currentSession: StateFlow<com.example.data.supabase.AuthSession?> = _currentSession.asStateFlow()
+
+    fun clearAuthError() {
+        _authError.value = null
+    }
+
     // Player Profile Persistence
     private val prefs = application.getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
 
@@ -71,10 +90,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // App Navigation State
-    private val isProfileRegistered: Boolean
-        get() = prefs.getBoolean("isProfileRegistered", false)
-
-    private val _currentScreen = MutableStateFlow(if (prefs.getBoolean("isProfileRegistered", false)) AppScreen.HOME else AppScreen.PROFILE)
+    private val _currentScreen = MutableStateFlow(AppScreen.LOGIN)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
 
     // Settings
@@ -85,38 +101,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _playerProfile = MutableStateFlow(loadSavedProfile())
     val playerProfile: StateFlow<PlayerProfile> = _playerProfile.asStateFlow()
 
+    init {
+        checkSavedSession()
+    }
+
+    private fun checkSavedSession() {
+        val savedSession = secureTokenManager.getSession()
+        val isGuestChoice = prefs.getBoolean("is_guest_mode", false)
+
+        if (savedSession != null) {
+            viewModelScope.launch {
+                _authLoading.value = true
+                val profile = supabaseProfileService.getProfile(savedSession.userId, savedSession.accessToken)
+                if (profile != null) {
+                    _playerProfile.value = profile
+                    saveProfileToPrefs(profile)
+                    _currentSession.value = savedSession
+                    _currentScreen.value = AppScreen.HOME
+                } else if (savedSession.refreshToken.isNotEmpty()) {
+                    val refreshResult = supabaseAuthService.refreshToken(savedSession.refreshToken)
+                    if (refreshResult is com.example.data.supabase.AuthResult.Success) {
+                        val newSession = refreshResult.data
+                        saveSessionToPrefs(newSession)
+                        _currentSession.value = newSession
+                        val fetched = supabaseProfileService.getProfile(newSession.userId, newSession.accessToken)
+                        if (fetched != null) {
+                            _playerProfile.value = fetched
+                            saveProfileToPrefs(fetched)
+                        }
+                        _currentScreen.value = AppScreen.HOME
+                    } else {
+                        clearSessionFromPrefs()
+                        _currentScreen.value = AppScreen.LOGIN
+                    }
+                } else {
+                    _currentScreen.value = AppScreen.LOGIN
+                }
+                _authLoading.value = false
+            }
+        } else if (isGuestChoice) {
+            _currentScreen.value = AppScreen.HOME
+        } else {
+            _currentScreen.value = AppScreen.LOGIN
+        }
+    }
+
+    private fun saveSessionToPrefs(session: com.example.data.supabase.AuthSession) {
+        secureTokenManager.saveSession(session)
+        prefs.edit().putBoolean("is_guest_mode", false).apply()
+    }
+
+    private fun clearSessionFromPrefs() {
+        secureTokenManager.clearSession()
+        prefs.edit().remove("is_guest_mode").apply()
+    }
+
     private fun loadSavedProfile(): PlayerProfile {
-        val savedName = prefs.getString("username", "اللاعب الأسطوري") ?: "اللاعب الأسطوري"
+        val savedId = prefs.getString("playerId", "player_${System.currentTimeMillis() % 10000}") ?: "player_123"
+        val savedUsername = prefs.getString("username", "اللاعب الأسطوري") ?: "اللاعب الأسطوري"
+        val savedDisplayName = prefs.getString("displayName", savedUsername) ?: savedUsername
         val savedAvatarId = prefs.getInt("avatarId", 1)
         val savedCustomUri = prefs.getString("avatarCustomUri", null)
         val savedLevel = prefs.getInt("level", 1)
         val savedXp = prefs.getInt("xp", 0)
+        val savedCoins = prefs.getInt("coins", 0)
         val savedWins = prefs.getInt("wins", 0)
         val savedLosses = prefs.getInt("losses", 0)
+        val savedDraws = prefs.getInt("draws", 0)
         val savedTotal = prefs.getInt("totalGames", 0)
+        val savedEmail = prefs.getString("email", null)
+        val isGuest = prefs.getBoolean("is_guest_mode", true)
 
         return PlayerProfile(
-            username = savedName,
+            id = savedId,
+            username = savedUsername,
+            displayName = savedDisplayName,
             avatarId = savedAvatarId,
             avatarCustomUri = savedCustomUri,
             level = savedLevel,
             xp = savedXp,
+            coins = savedCoins,
             wins = savedWins,
             losses = savedLosses,
-            totalGames = savedTotal
+            draws = savedDraws,
+            totalGames = savedTotal,
+            email = savedEmail,
+            isGuest = isGuest
         )
     }
 
     private fun saveProfileToPrefs(profile: PlayerProfile) {
         prefs.edit()
+            .putString("playerId", profile.id)
             .putString("username", profile.username)
+            .putString("displayName", profile.displayName)
             .putInt("avatarId", profile.avatarId)
             .putString("avatarCustomUri", profile.avatarCustomUri)
             .putInt("level", profile.level)
             .putInt("xp", profile.xp)
+            .putInt("coins", profile.coins)
             .putInt("wins", profile.wins)
             .putInt("losses", profile.losses)
+            .putInt("draws", profile.draws)
             .putInt("totalGames", profile.totalGames)
+            .putString("email", profile.email)
+            .putBoolean("is_guest_mode", profile.isGuest)
             .putBoolean("isProfileRegistered", true)
             .apply()
     }
@@ -493,26 +582,157 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         soundManager.playClick()
     }
 
+    fun loginWithSupabase(email: String, pass: String) {
+        if (email.isBlank() || pass.isBlank()) {
+            _authError.value = "يرجى إدخال البريد الإلكتروني وكلمة المرور"
+            return
+        }
+        viewModelScope.launch {
+            _authLoading.value = true
+            _authError.value = null
+            val res = supabaseAuthService.login(email, pass)
+            when (res) {
+                is com.example.data.supabase.AuthResult.Success -> {
+                    val session = res.data
+                    _currentSession.value = session
+                    saveSessionToPrefs(session)
+
+                    val profile = supabaseProfileService.getProfile(session.userId, session.accessToken)
+                    val finalProfile = profile ?: PlayerProfile(
+                        id = session.userId,
+                        username = session.username.ifEmpty { email.substringBefore("@") },
+                        displayName = session.displayName.ifEmpty { session.username.ifEmpty { email.substringBefore("@") } },
+                        email = email,
+                        isGuest = false
+                    )
+                    _playerProfile.value = finalProfile
+                    saveProfileToPrefs(finalProfile)
+                    soundManager.playWin()
+                    _currentScreen.value = AppScreen.HOME
+                }
+                is com.example.data.supabase.AuthResult.Error -> {
+                    _authError.value = res.messageAr
+                    soundManager.playLoss()
+                }
+            }
+            _authLoading.value = false
+        }
+    }
+
+    fun registerWithSupabase(email: String, password: String, username: String, displayName: String) {
+        viewModelScope.launch {
+            _authLoading.value = true
+            _authError.value = null
+            val res = supabaseAuthService.signUp(email, password, username, displayName)
+            when (res) {
+                is com.example.data.supabase.AuthResult.Success -> {
+                    val session = res.data
+                    if (session.accessToken.isNotEmpty()) {
+                        _currentSession.value = session
+                        saveSessionToPrefs(session)
+
+                        delay(1000)
+                        val profile = supabaseProfileService.getProfile(session.userId, session.accessToken)
+                        val finalProfile = profile ?: PlayerProfile(
+                            id = session.userId,
+                            username = username,
+                            displayName = displayName,
+                            email = email,
+                            isGuest = false
+                        )
+                        _playerProfile.value = finalProfile
+                        saveProfileToPrefs(finalProfile)
+                        soundManager.playWin()
+                        _currentScreen.value = AppScreen.HOME
+                    } else {
+                        _authError.value = "تم إنشاء الحساب بنجاح! يرجى مراجعة البريد الإلكتروني لتأكيد الحساب ثم تسجيل الدخول."
+                    }
+                }
+                is com.example.data.supabase.AuthResult.Error -> {
+                    _authError.value = res.messageAr
+                    soundManager.playLoss()
+                }
+            }
+            _authLoading.value = false
+        }
+    }
+
+    suspend fun isUsernameTaken(username: String): Boolean {
+        return supabaseProfileService.isUsernameTaken(username)
+    }
+
+    suspend fun sendPasswordReset(email: String): com.example.data.supabase.AuthResult<Unit> {
+        return supabaseAuthService.sendPasswordReset(email)
+    }
+
+    fun continueAsGuest() {
+        prefs.edit().putBoolean("is_guest_mode", true).apply()
+        val guestProfile = _playerProfile.value.copy(isGuest = true)
+        _playerProfile.value = guestProfile
+        saveProfileToPrefs(guestProfile)
+        _currentScreen.value = AppScreen.HOME
+    }
+
+    fun logoutSupabase() {
+        val session = _currentSession.value
+        if (session != null) {
+            viewModelScope.launch {
+                supabaseAuthService.logout(session.accessToken)
+            }
+        }
+        clearSessionFromPrefs()
+        _currentSession.value = null
+        val guest = PlayerProfile(isGuest = true)
+        _playerProfile.value = guest
+        saveProfileToPrefs(guest)
+        _currentScreen.value = AppScreen.LOGIN
+    }
+
     fun updateProfile(newUsername: String, newAvatarId: Int) {
         val updated = _playerProfile.value.copy(
             username = newUsername.ifEmpty { "اللاعب الأسطوري" },
+            displayName = newUsername.ifEmpty { "اللاعب الأسطوري" },
             avatarId = newAvatarId
         )
         _playerProfile.value = updated
         saveProfileToPrefs(updated)
         syncProfileToRoomPlayers(updated)
+
+        val session = _currentSession.value
+        if (session != null && !updated.isGuest) {
+            viewModelScope.launch {
+                supabaseProfileService.updateDisplayMetadata(
+                    userId = session.userId,
+                    accessToken = session.accessToken,
+                    displayName = updated.displayName,
+                    avatar = newAvatarId.toString()
+                )
+            }
+        }
         soundManager.playClick()
     }
 
     fun updateProfileFull(newUsername: String, newAvatarId: Int, newCustomUri: String?) {
         val updated = _playerProfile.value.copy(
-            username = newUsername.ifEmpty { "اللاعب الأسطوري" },
+            displayName = newUsername.ifEmpty { _playerProfile.value.displayName },
             avatarId = newAvatarId,
             avatarCustomUri = newCustomUri
         )
         _playerProfile.value = updated
         saveProfileToPrefs(updated)
         syncProfileToRoomPlayers(updated)
+
+        val session = _currentSession.value
+        if (session != null && !updated.isGuest) {
+            viewModelScope.launch {
+                supabaseProfileService.updateDisplayMetadata(
+                    userId = session.userId,
+                    accessToken = session.accessToken,
+                    displayName = updated.displayName,
+                    avatar = newAvatarId.toString()
+                )
+            }
+        }
         soundManager.playClick()
     }
 
@@ -1023,6 +1243,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         saveProfileToPrefs(_playerProfile.value)
+
+        // Sync stats to Supabase if logged in
+        val session = _currentSession.value
+        val updatedProfile = _playerProfile.value
+        if (session != null && !updatedProfile.isGuest) {
+            viewModelScope.launch {
+                // Attempt secure database RPC first to calculate & increment stats server-side
+                val rpcSuccess = supabaseProfileService.recordMatchResultRpc(
+                    accessToken = session.accessToken,
+                    isWin = isMeWin,
+                    isDraw = false,
+                    xpEarned = if (isMeWin) 50 else 0,
+                    coinsEarned = if (isMeWin) 20 else 0
+                )
+                // Fallback to profile patch if RPC is not deployed
+                if (!rpcSuccess) {
+                    supabaseProfileService.updateProfile(
+                        userId = session.userId,
+                        accessToken = session.accessToken,
+                        level = updatedProfile.level,
+                        xp = updatedProfile.xp,
+                        coins = updatedProfile.coins,
+                        wins = updatedProfile.wins,
+                        losses = updatedProfile.losses,
+                        draws = updatedProfile.draws,
+                        gamesPlayed = updatedProfile.totalGames
+                    )
+                }
+            }
+        }
 
         // Save match record to database
         viewModelScope.launch {

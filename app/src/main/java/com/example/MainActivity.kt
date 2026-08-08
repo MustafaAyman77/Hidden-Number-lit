@@ -21,6 +21,8 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.example.ui.AppScreen
 import com.example.ui.MainViewModel
+import com.example.ui.auth.LoginScreen
+import com.example.ui.auth.RegisterScreen
 import com.example.ui.screens.CreateJoinRoomScreen
 import com.example.ui.screens.GameplayScreen
 import com.example.ui.screens.HistoryScreen
@@ -195,6 +197,18 @@ class MainActivity : ComponentActivity() {
                                         ProfileRegistrationScreen(
                                             viewModel = viewModel,
                                             profile = profile,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.LOGIN -> {
+                                        LoginScreen(
+                                            viewModel = viewModel,
+                                            languageAr = languageAr
+                                        )
+                                    }
+                                    AppScreen.REGISTER -> {
+                                        RegisterScreen(
+                                            viewModel = viewModel,
                                             languageAr = languageAr
                                         )
                                     }
