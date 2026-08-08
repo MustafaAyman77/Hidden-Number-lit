@@ -135,6 +135,15 @@ fun SettingsScreen(
                     color = TextSecondary,
                     lineHeight = 18.sp
                 )
+
+                androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(top = 4.dp))
+
+                com.example.ui.components.CyberButton(
+                    text = if (languageAr) "🔄 التحقق من وجود تحديثات" else "🔄 Check for Updates",
+                    onClick = { viewModel.checkUpdatesManually() },
+                    primaryColor = NeonCyan,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }

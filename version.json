@@ -1,0 +1,13 @@
+{
+  "versionCode": 2,
+  "versionName": "1.1.0",
+  "apkUrl": "https://github.com/USERNAME/REPOSITORY/releases/download/v1.1.0/game.apk",
+  "size": "25 MB",
+  "releaseNotes": [
+    "إضافة نظام التحديث التلقائي الفائق 🚀",
+    "تحسين المؤثرات والرسوم المتحركة في التخمينات",
+    "تحسين الأداء وإصلاح الثغرات اللوجستية"
+  ],
+  "mandatory": false,
+  "sha256": ""
+}

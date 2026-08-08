@@ -20,6 +20,9 @@ import com.example.data.model.RoomPlayer
 import com.example.domain.AiBotEngine
 import com.example.network.LocalWifiNetworkManager
 import com.example.network.OnlineNetworkManager
+import com.example.update.AppUpdateManager
+import com.example.update.UpdateManifest
+import com.example.update.UpdateUIState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +51,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val voiceChatManager = VoiceChatManager(application, viewModelScope)
     val onlineNetworkManager = OnlineNetworkManager(viewModelScope)
     val localWifiNetworkManager = LocalWifiNetworkManager(application, viewModelScope)
+    val appUpdateManager = AppUpdateManager(application, viewModelScope)
+    val updateState = appUpdateManager.updateState
     private val aiBotEngine = AiBotEngine()
 
     // Player Profile Persistence
@@ -176,6 +181,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         setupVoiceChatCallback()
         observeNetworkMessages()
         startLobbySyncHeartbeat()
+        appUpdateManager.checkForUpdates(manualTrigger = false)
+    }
+
+    fun checkUpdatesManually() {
+        appUpdateManager.checkForUpdates(manualTrigger = true)
+    }
+
+    fun downloadAndInstallUpdate(manifest: UpdateManifest) {
+        appUpdateManager.downloadAndInstallApk(manifest)
+    }
+
+    fun installApk(filePath: String) {
+        appUpdateManager.installApk(filePath)
+    }
+
+    fun skipUpdate(versionCode: Long) {
+        appUpdateManager.skipVersion(versionCode)
+    }
+
+    fun dismissUpdateUi() {
+        appUpdateManager.dismissUpdateUi()
     }
 
     private fun startLobbySyncHeartbeat() {

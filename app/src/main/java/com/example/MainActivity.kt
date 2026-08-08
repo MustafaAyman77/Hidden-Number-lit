@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
             val audioLevel by viewModel.voiceChatManager.audioLevel.collectAsState()
             val lastEmoji by viewModel.lastReactionEmoji.collectAsState()
             val appError by viewModel.appError.collectAsState()
+            val updateState by viewModel.updateState.collectAsState()
 
             val layoutDirection = if (languageAr) LayoutDirection.Rtl else LayoutDirection.Ltr
 
@@ -78,6 +79,24 @@ class MainActivity : ComponentActivity() {
                                     onDismiss = { viewModel.clearAppError() }
                                 )
                             }
+
+                            com.example.ui.components.UpdateDialog(
+                                updateState = updateState,
+                                languageAr = languageAr,
+                                onUpdateClick = {
+                                    (updateState as? com.example.update.UpdateUIState.Available)?.let {
+                                        viewModel.downloadAndInstallUpdate(it.manifest)
+                                    }
+                                },
+                                onInstallClick = { filePath ->
+                                    viewModel.installApk(filePath)
+                                },
+                                onDismissClick = {
+                                    (updateState as? com.example.update.UpdateUIState.Available)?.let {
+                                        viewModel.skipUpdate(it.manifest.versionCode.toLong())
+                                    } ?: viewModel.dismissUpdateUi()
+                                }
+                            )
                             when (currentScreen) {
                                 AppScreen.HOME -> {
                                     HomeScreen(
