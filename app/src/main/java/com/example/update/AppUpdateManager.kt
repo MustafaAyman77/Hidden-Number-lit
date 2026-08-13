@@ -268,7 +268,8 @@ class AppUpdateManager(
                 // ✅ التحقق من سلامة الملف (SHA-256)
                 if (!manifest.sha256.isNullOrBlank()) {
                     val actualHash = calculateSha256(apkFile)
-                    if (!actualHash.equals(manifest.sha256.trim(), ignoreCase = true)) {
+                    val expectedHash = manifest.sha256.trim().removePrefix("sha256:").removePrefix("SHA256:").trim()
+                    if (!actualHash.equals(expectedHash, ignoreCase = true)) {
                         apkFile.delete()
                         _updateState.value = UpdateUIState.Error(
                             manifest = manifest,
