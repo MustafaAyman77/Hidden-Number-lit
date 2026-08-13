@@ -79,16 +79,16 @@ class AppUpdateManager(
 
                 Log.d(TAG, "📱 Current version: $currentVersionName ($currentVersionCode)")
 
-                // ✅ جلب التحديث من GitHub أو Manifest
+                // ✅ جلب التحديث من قائمة الروابط المتعددة أو GitHub Releases
                 val manifest = fetchUpdateManifest() ?: fetchGitHubReleaseManifest(UpdateConfig.GITHUB_REPO)
 
                 if (manifest == null) {
-                    Log.d(TAG, "❌ No update manifest found")
+                    Log.d(TAG, "❌ No update manifest found from any source")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
-                            messageAr = "أنت تستخدم أحدث إصدار بالفعل ($currentVersionName).",
-                            messageEn = "You are already using the latest version ($currentVersionName)."
+                            messageAr = "تعذر التحقق من التحديثات من جميع المصادر. يرجى التحقق من اتصال الإنترنت أو توفر ملف version.json على المستودع.",
+                            messageEn = "Could not check for updates from all sources. Please check internet connection or repository availability."
                         )
                     } else {
                         _updateState.value = UpdateUIState.Idle
@@ -452,13 +452,22 @@ class AppUpdateManager(
     }
 
     private suspend fun fetchUpdateManifest(): UpdateManifest? = withContext(Dispatchers.IO) {
-        try {
-            val jsonString = fetchUrlContent(UpdateConfig.UPDATE_MANIFEST_URL) ?: return@withContext null
-            parseUpdateManifest(jsonString)
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to fetch manifest: ${e.message}", e)
-            null
+        for (url in UpdateConfig.MANIFEST_URLS) {
+            try {
+                Log.d(TAG, "🔍 Trying to fetch update manifest from: $url")
+                val jsonString = fetchUrlContent(url)
+                if (!jsonString.isNullOrBlank()) {
+                    val manifest = parseUpdateManifest(jsonString)
+                    if (manifest != null) {
+                        Log.d(TAG, "✅ Successfully loaded manifest from: $url (v${manifest.versionName})")
+                        return@withContext manifest
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to fetch from $url: ${e.message}")
+            }
         }
+        null
     }
 
     private fun fetchUrlContent(urlString: String): String? {
@@ -470,10 +479,13 @@ class AppUpdateManager(
             try {
                 val url = URL(currentUrl)
                 urlConnection = url.openConnection() as HttpURLConnection
-                urlConnection.connectTimeout = 10000
-                urlConnection.readTimeout = 10000
+                urlConnection.connectTimeout = 8000
+                urlConnection.readTimeout = 8000
                 urlConnection.instanceFollowRedirects = true
-                urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AppUpdateChecker)")
+                urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko)")
+                urlConnection.setRequestProperty("Accept", "application/json, text/plain, */*")
+                urlConnection.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+                urlConnection.setRequestProperty("Pragma", "no-cache")
                 urlConnection.requestMethod = "GET"
                 urlConnection.connect()
 
@@ -494,9 +506,11 @@ class AppUpdateManager(
                 if (status == HttpURLConnection.HTTP_OK) {
                     return urlConnection.inputStream.bufferedReader().use { it.readText() }
                 } else {
+                    Log.d(TAG, "⚠️ HTTP $status from $currentUrl")
                     return null
                 }
             } catch (e: Exception) {
+                Log.d(TAG, "⚠️ Network error on $currentUrl: ${e.message}")
                 return null
             } finally {
                 urlConnection?.disconnect()
