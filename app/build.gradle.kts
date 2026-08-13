@@ -8,10 +8,6 @@ plugins {
     alias(libs.plugins.secrets)
     alias(libs.plugins.google.services)
     alias(libs.plugins.kotlinx.serialization)
-    
-    // ❌ تم حذف بلاجين kotlin-parcelize نهائياً
-    // id("org.jetbrains.kotlin.plugin.parcelize")
-    // alias(libs.plugins.kotlin.parcelize)
 }
 
 android {
@@ -123,7 +119,7 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation(libs.retrofit)
     
-    // ⭐ Supabase
+    // Supabase
     implementation(libs.supabase.storage)
     implementation(libs.supabase.auth)
     implementation(libs.ktor.client.android)
