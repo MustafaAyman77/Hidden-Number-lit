@@ -110,18 +110,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return com.example.data.supabase.SupabaseConfig.isConfigured()
     }
 
+    /**
+     * التحقق من الجلسة المخزنة محلياً مع دعم وضع عدم الاتصال
+     * في حالة عدم وجود اتصال، يتم استخدام البيانات المخزنة محلياً
+     */
     private fun checkSavedSession() {
         val savedSession = secureTokenManager.getSession()
         val isGuestChoice = prefs.getBoolean("is_guest_mode", false)
         val isRegistered = prefs.getBoolean("isProfileRegistered", false)
         val localProfile = loadSavedProfile()
 
+        // [DEBUG] للمساعدة في تتبع المشكلة
+        Log.d("MainViewModel", "=== checkSavedSession ===")
+        Log.d("MainViewModel", "SavedSession: ${savedSession?.userId}")
+        Log.d("MainViewModel", "Guest: $isGuestChoice, Registered: $isRegistered")
+        Log.d("MainViewModel", "LocalProfile: ${localProfile.id}")
+
         if (savedSession != null) {
             viewModelScope.launch {
                 _authLoading.value = true
                 try {
+                    // محاولة جلب الملف الشخصي عبر الشبكة
                     val profile = supabaseProfileService.getProfile(savedSession.userId, savedSession.accessToken)
                     if (profile != null) {
+                        Log.d("MainViewModel", "Profile fetched online successfully")
                         val finalProfile = profile.copy(
                             avatarCustomUri = profile.avatarCustomUri ?: localProfile.avatarCustomUri
                         )
@@ -130,8 +142,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _currentSession.value = savedSession
                         _currentScreen.value = AppScreen.HOME
                     } else if (savedSession.refreshToken.isNotEmpty()) {
+                        Log.d("MainViewModel", "Profile is null, attempting to refresh token")
+                        // محاولة تحديث التوكن
                         val refreshResult = supabaseAuthService.refreshToken(savedSession.refreshToken)
                         if (refreshResult is com.example.data.supabase.AuthResult.Success) {
+                            Log.d("MainViewModel", "Token refreshed successfully")
                             val newSession = refreshResult.data
                             saveSessionToPrefs(newSession)
                             _currentSession.value = newSession
@@ -142,23 +157,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             _playerProfile.value = finalProfile
                             saveProfileToPrefs(finalProfile)
                             _currentScreen.value = AppScreen.HOME
-                        } else if (refreshResult is com.example.data.supabase.AuthResult.Error && (refreshResult.messageAr.contains("401") || refreshResult.messageEn.contains("401"))) {
+                        } else if (refreshResult is com.example.data.supabase.AuthResult.Error && 
+                                  (refreshResult.messageAr?.contains("401") == true || 
+                                   refreshResult.messageEn?.contains("401") == true)) {
+                            // التوكن غير صالح نهائياً -> تسجيل الخروج
+                            Log.w("MainViewModel", "Token expired (401), logging out")
                             clearSessionFromPrefs()
                             _currentScreen.value = AppScreen.LOGIN
                         } else {
-                            // Offline fallback: keep saved session and go to HOME
+                            // فشل التحديث لسبب آخر (مثل عدم اتصال) -> نستخدم الجلسة المخزنة
+                            Log.w("MainViewModel", "Failed to refresh token, using cached session")
                             _currentSession.value = savedSession
                             _playerProfile.value = localProfile
                             _currentScreen.value = AppScreen.HOME
                         }
                     } else {
-                        // Offline fallback: keep saved session and go to HOME
+                        // لا يوجد توكن تحديث -> نستخدم المخزن
+                        Log.d("MainViewModel", "No refresh token, using cached session")
                         _currentSession.value = savedSession
                         _playerProfile.value = localProfile
                         _currentScreen.value = AppScreen.HOME
                     }
                 } catch (e: Exception) {
-                    // Offline fallback on network exception
+                    // في حالة استثناء (شبكة) نستمر بالجلسة المخزنة
+                    Log.w("MainViewModel", "Network error during session check, using cached session", e)
                     _currentSession.value = savedSession
                     _playerProfile.value = localProfile
                     _currentScreen.value = AppScreen.HOME
@@ -167,21 +189,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         } else if (isGuestChoice || isRegistered) {
+            Log.d("MainViewModel", "No session, but guest or registered, navigating to HOME")
             _playerProfile.value = localProfile
             _currentScreen.value = AppScreen.HOME
         } else {
+            Log.d("MainViewModel", "No session, navigating to LOGIN")
             _currentScreen.value = AppScreen.LOGIN
         }
     }
 
     private fun saveSessionToPrefs(session: com.example.data.supabase.AuthSession) {
         secureTokenManager.saveSession(session)
-        prefs.edit().putBoolean("is_guest_mode", false).apply()
+        prefs.edit()
+            .putBoolean("is_guest_mode", false)
+            .putBoolean("isProfileRegistered", true)
+            .apply()
+        Log.d("MainViewModel", "Session saved for user: ${session.userId}")
     }
 
     private fun clearSessionFromPrefs() {
         secureTokenManager.clearSession()
-        prefs.edit().remove("is_guest_mode").apply()
+        prefs.edit()
+            .remove("is_guest_mode")
+            .remove("isProfileRegistered")
+            .apply()
+        Log.d("MainViewModel", "Session cleared")
     }
 
     private fun loadSavedProfile(): PlayerProfile {
@@ -236,6 +268,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .putBoolean("is_guest_mode", profile.isGuest)
             .putBoolean("isProfileRegistered", true)
             .apply()
+        Log.d("MainViewModel", "Profile saved for user: ${profile.id}")
     }
 
     // Selected Game Config
@@ -610,6 +643,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         soundManager.playClick()
     }
 
+    // ============================================================
+    // دالة تسجيل الدخول المعدلة - لا يوجد إنشاء تلقائي
+    // ============================================================
     fun loginWithSupabase(email: String, pass: String) {
         if (email.isBlank() || pass.isBlank()) {
             _authError.value = "يرجى إدخال البريد الإلكتروني وكلمة المرور"
@@ -625,21 +661,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val res = supabaseAuthService.login(email, pass)
                 if (res is com.example.data.supabase.AuthResult.Success) {
                     session = res.data
+                    Log.d("MainViewModel", "Supabase login successful for: $email")
+                } else if (res is com.example.data.supabase.AuthResult.Error) {
+                    // عرض رسالة الخطأ من Supabase وإيقاف الدخول
+                    Log.w("MainViewModel", "Supabase login error: ${res.messageAr}")
+                    _authError.value = res.messageAr ?: "فشل تسجيل الدخول. يرجى التحقق من بياناتك."
+                    _authLoading.value = false
+                    return@launch
+                }
+            } else {
+                // في حالة عدم وجود شبكة أو عدم تكوين Supabase، نستخدم LocalAuthManager
+                Log.d("MainViewModel", "Supabase not configured, using local auth")
+                val localSession = localAuthManager.login(email, pass)
+                if (localSession != null) {
+                    session = localSession
+                    Log.d("MainViewModel", "Local login successful for: $email")
+                } else {
+                    // [FIX] لم نعد ننشئ حساباً تلقائياً
+                    _authError.value = "البريد الإلكتروني أو كلمة المرور غير صحيحة، أو الحساب غير مسجل."
+                    _authLoading.value = false
+                    return@launch
                 }
             }
 
             if (session == null) {
-                // Local authentication fallback
-                val localSession = localAuthManager.login(email, pass)
-                    ?: localAuthManager.registerAccount(email, pass, email.substringBefore("@"), email.substringBefore("@"))
-                session = localSession
+                _authError.value = "تعذر تسجيل الدخول. يرجى التأكد من بيانات الحساب."
+                _authLoading.value = false
+                return@launch
             }
 
+            // حفظ الجلسة والملف الشخصي
             _currentSession.value = session
             saveSessionToPrefs(session)
 
             val profile = if (isSupabaseConfigured()) {
-                supabaseProfileService.getProfile(session.userId, session.accessToken)
+                try {
+                    supabaseProfileService.getProfile(session.userId, session.accessToken)
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Could not fetch profile online, using local", e)
+                    null
+                }
             } else null
 
             val finalProfile = (profile ?: localAuthManager.getProfile(session.userId) ?: PlayerProfile(
@@ -657,9 +718,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             soundManager.playWin()
             _currentScreen.value = AppScreen.HOME
             _authLoading.value = false
+            Log.d("MainViewModel", "Login completed, navigating to HOME")
         }
     }
 
+    // ============================================================
+    // دالة التسجيل المعدلة
+    // ============================================================
     fun registerWithSupabase(email: String, password: String, username: String, displayName: String) {
         viewModelScope.launch {
             _authLoading.value = true
@@ -671,12 +736,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val res = supabaseAuthService.signUp(email, password, username, displayName)
                 if (res is com.example.data.supabase.AuthResult.Success && res.data.accessToken.isNotEmpty()) {
                     session = res.data
+                    Log.d("MainViewModel", "Supabase registration successful for: $email")
+                } else if (res is com.example.data.supabase.AuthResult.Error) {
+                    Log.w("MainViewModel", "Supabase registration error: ${res.messageAr}")
+                    _authError.value = res.messageAr ?: "فشل إنشاء الحساب. يرجى المحاولة مرة أخرى."
+                    _authLoading.value = false
+                    return@launch
                 }
+            } else {
+                // في وضع عدم الاتصال، نعرض رسالة خطأ
+                _authError.value = "لا يمكن إنشاء حساب جديد بدون اتصال بالإنترنت."
+                _authLoading.value = false
+                return@launch
             }
 
             if (session == null) {
-                // Local account creation fallback
-                session = localAuthManager.registerAccount(email, password, username, displayName)
+                _authError.value = "فشل إنشاء الحساب. يرجى المحاولة مرة أخرى."
+                _authLoading.value = false
+                return@launch
             }
 
             _currentSession.value = session
@@ -695,6 +772,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             soundManager.playWin()
             _currentScreen.value = AppScreen.HOME
             _authLoading.value = false
+            Log.d("MainViewModel", "Registration completed, navigating to HOME")
         }
     }
 
@@ -720,13 +798,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _playerProfile.value = guestProfile
         saveProfileToPrefs(guestProfile)
         _currentScreen.value = AppScreen.HOME
+        Log.d("MainViewModel", "Continuing as guest")
     }
 
     fun logoutSupabase() {
         val session = _currentSession.value
         if (session != null) {
             viewModelScope.launch {
-                supabaseAuthService.logout(session.accessToken)
+                try {
+                    supabaseAuthService.logout(session.accessToken)
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Error during logout: ${e.message}")
+                }
             }
         }
         clearSessionFromPrefs()
@@ -735,6 +818,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _playerProfile.value = guest
         saveProfileToPrefs(guest)
         _currentScreen.value = AppScreen.LOGIN
+        Log.d("MainViewModel", "Logged out")
     }
 
     fun updateProfile(newUsername: String, newAvatarId: Int) {
@@ -750,12 +834,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val session = _currentSession.value
         if (session != null && !updated.isGuest) {
             viewModelScope.launch {
-                supabaseProfileService.updateDisplayMetadata(
-                    userId = session.userId,
-                    accessToken = session.accessToken,
-                    displayName = updated.displayName,
-                    avatar = newAvatarId.toString()
-                )
+                try {
+                    supabaseProfileService.updateDisplayMetadata(
+                        userId = session.userId,
+                        accessToken = session.accessToken,
+                        displayName = updated.displayName,
+                        avatar = newAvatarId.toString()
+                    )
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Could not sync profile to Supabase: ${e.message}")
+                }
             }
         }
         soundManager.playClick()
@@ -774,12 +862,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val session = _currentSession.value
         if (session != null && !updated.isGuest) {
             viewModelScope.launch {
-                supabaseProfileService.updateDisplayMetadata(
-                    userId = session.userId,
-                    accessToken = session.accessToken,
-                    displayName = updated.displayName,
-                    avatar = newAvatarId.toString()
-                )
+                try {
+                    supabaseProfileService.updateDisplayMetadata(
+                        userId = session.userId,
+                        accessToken = session.accessToken,
+                        displayName = updated.displayName,
+                        avatar = newAvatarId.toString()
+                    )
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Could not sync profile to Supabase: ${e.message}")
+                }
             }
         }
         soundManager.playClick()
@@ -1298,27 +1390,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val updatedProfile = _playerProfile.value
         if (session != null && !updatedProfile.isGuest) {
             viewModelScope.launch {
-                // Attempt secure database RPC first to calculate & increment stats server-side
-                val rpcSuccess = supabaseProfileService.recordMatchResultRpc(
-                    accessToken = session.accessToken,
-                    isWin = isMeWin,
-                    isDraw = false,
-                    xpEarned = if (isMeWin) 50 else 0,
-                    coinsEarned = if (isMeWin) 20 else 0
-                )
-                // Fallback to profile patch if RPC is not deployed
-                if (!rpcSuccess) {
-                    supabaseProfileService.updateProfile(
-                        userId = session.userId,
+                try {
+                    // Attempt secure database RPC first to calculate & increment stats server-side
+                    val rpcSuccess = supabaseProfileService.recordMatchResultRpc(
                         accessToken = session.accessToken,
-                        level = updatedProfile.level,
-                        xp = updatedProfile.xp,
-                        coins = updatedProfile.coins,
-                        wins = updatedProfile.wins,
-                        losses = updatedProfile.losses,
-                        draws = updatedProfile.draws,
-                        gamesPlayed = updatedProfile.totalGames
+                        isWin = isMeWin,
+                        isDraw = false,
+                        xpEarned = if (isMeWin) 50 else 0,
+                        coinsEarned = if (isMeWin) 20 else 0
                     )
+                    // Fallback to profile patch if RPC is not deployed
+                    if (!rpcSuccess) {
+                        supabaseProfileService.updateProfile(
+                            userId = session.userId,
+                            accessToken = session.accessToken,
+                            level = updatedProfile.level,
+                            xp = updatedProfile.xp,
+                            coins = updatedProfile.coins,
+                            wins = updatedProfile.wins,
+                            losses = updatedProfile.losses,
+                            draws = updatedProfile.draws,
+                            gamesPlayed = updatedProfile.totalGames
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Could not sync stats to Supabase: ${e.message}")
                 }
             }
         }
