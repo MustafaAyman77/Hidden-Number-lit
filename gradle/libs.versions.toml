@@ -11,7 +11,8 @@ activityCompose = "1.10.1"
 kotlin = "2.2.10"
 composeCompiler = "1.5.15"
 composeBom = "2024.10.01"
-googleDevtoolsKsp = "2.2.10-1.0.30"
+# ✅ إصدار KSP الصحيح
+ksp = "2.2.10-1.0.24"
 navigationCompose = "2.8.9"
 roomRuntime = "2.7.0"
 roomKtx = "2.7.0"
@@ -115,9 +116,8 @@ dotenv = { group = "io.github.cdimascio", name = "dotenv-kotlin", version.ref = 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
+google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
 secrets = { id = "com.google.android.libraries.mapsplatform.secrets-gradle-plugin", version.ref = "secretsGradlePlugin" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
 kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
-# ❌ لا يوجد kotlin-parcelize
