@@ -28,15 +28,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Gradle 9.3.1
+      # ✅ استخدم Gradle Wrapper بدلاً من تحديد إصدار ثابت
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
+        # لا تحدد إصداراً هنا، استخدم gradle-wrapper.properties
 
       - name: Verify Java environment
         run: |
           java -version
           echo "JAVA_HOME: $JAVA_HOME"
+          ./gradlew --version
 
       - name: Create temporary debug keystore
         run: |
@@ -55,8 +56,11 @@ jobs:
               -validity 10000
           fi
 
+      # ✅ استخدم ./gradlew بدلاً من gradle
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
       - name: Prepare Release APK File
         run: |
