@@ -1,13 +1,13 @@
 {
-  "versionCode": 100116,
-  "versionName": "1.0.116",
-  "apkUrl": "https://github.com/MustafaAyman77/Hidden-Number-lit/releases/download/v1.0.116/HiddenNumber-v1.0.116.apk",
-  "size": "22.6 MB",
+  "versionCode": 2,
+  "versionName": "1.0.1",
+  "apkUrl": "https://github.com/mustafaymanborayk/hidden-number-game/releases/download/v1.0.1/app-release.apk",
+  "size": "16.5 MB",
   "releaseNotes": [
     "إصلاح نظام التحقق والتحديثات التلقائية والتثبيت المباشر",
     "تشفير وحماية توكنات الجلسة باستخدام EncryptedSharedPreferences",
     "حماية المزامنة وإضافة سيرفر RPC لحساب النقاط والـ XP"
   ],
   "mandatory": false,
-  "sha256": "c9efc6f197dd082d570943f16f54247f23695175d7e54b97606f041958da3669"
+  "sha256": ""
 }
