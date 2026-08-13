@@ -9,6 +9,7 @@ plugins {
   alias(libs.plugins.google.services)
   // ⭐ أضف هذا البلاجين الجديد
   alias(libs.plugins.kotlinx.serialization)
+  alias(libs.plugins.kotlin.parcelize)
 }
 
 android {
