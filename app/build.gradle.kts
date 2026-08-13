@@ -51,15 +51,12 @@ android {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       val customRelease = signingConfigs.findByName("release")
-      if (customRelease != null) {
-        signingConfig = customRelease
-      }
+      val customDebug = signingConfigs.findByName("debugConfig")
+      signingConfig = customRelease ?: customDebug ?: signingConfigs.getByName("debug")
     }
     debug {
       val customDebug = signingConfigs.findByName("debugConfig")
-      if (customDebug != null) {
-        signingConfig = customDebug
-      }
+      signingConfig = customDebug ?: signingConfigs.getByName("debug")
     }
   }
   compileOptions {
