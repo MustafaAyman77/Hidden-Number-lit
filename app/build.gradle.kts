@@ -12,14 +12,14 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
 }
 
-// ✅ قراءة local.properties لتخزين المفاتيح بشكل آمن
+// ✅ قراءة local.properties
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localProperties.load(FileInputStream(localPropertiesFile))
 }
 
-// ✅ قراءة متغيرات البيئة أو local.properties
+// ✅ قراءة المفاتيح
 val keystorePath: String = System.getenv("KEYSTORE_PATH") 
     ?: localProperties.getProperty("KEYSTORE_PATH") 
     ?: "${rootDir}/my-upload-key.jks"
@@ -45,7 +45,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
-        // ✅ Supabase من gradle.properties
         val supabaseUrl: String = project.properties["SUPABASE_URL"] as? String ?: ""
         val supabaseAnonKey: String = project.properties["SUPABASE_ANON_KEY"] as? String ?: ""
         
@@ -56,7 +55,6 @@ android {
     }
 
     signingConfigs {
-        // ✅ Release signing - التحقق من وجود الملف وكلمات المرور
         val releaseKeystoreFile = file(keystorePath)
         if (releaseKeystoreFile.exists() && storePassword.isNotEmpty() && keyPassword.isNotEmpty()) {
             create("release") {
@@ -70,10 +68,9 @@ android {
                 enableV4Signing = true
             }
         } else {
-            println("⚠️ Release keystore not found or passwords missing. Release builds will use debug signing.")
+            println("⚠️ Release keystore not found or passwords missing.")
         }
         
-        // ✅ Debug signing
         create("debugConfig") {
             storeFile = file("${rootDir}/debug.keystore")
             storePassword = "android"
@@ -88,7 +85,6 @@ android {
             isShrinkResources = true
             isDebuggable = false
             isJniDebuggable = false
-            // ❌ تم حذف isRenderscriptDebuggable و isRenderscriptOptimLevel
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -107,7 +103,6 @@ android {
             versionNameSuffix = "-debug"
         }
 
-        // ✅ Build type للاختبارات
         create("staging") {
             initWith(buildTypes.getByName("debug"))
             signingConfig = signingConfigs.findByName("debugConfig")
@@ -127,7 +122,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // ✅ Kotlin compiler options باستخدام الصيغة الجديدة المتوافقة مع AGP 9
     kotlin {
         compilerOptions {
             jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
@@ -140,8 +134,6 @@ android {
         viewBinding = false
         dataBinding = false
     }
-
-    // ❌ تم حذف dexOptions بالكامل
 
     packaging {
         resources {
@@ -163,7 +155,6 @@ android {
     }
 }
 
-// ✅ تكوين Secrets Plugin
 secrets {
     propertiesFileName = ".env"
     defaultPropertiesFileName = ".env.example"
@@ -174,7 +165,6 @@ googleServices {
 }
 
 dependencies {
-    // Compose
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -182,53 +172,36 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.material.icons.extended)
-    
-    // Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
-    
-    // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
-    
-    // Firebase
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.ai)
     implementation(libs.firebase.appcheck.recaptcha)
-    
-    // Network
     implementation(libs.retrofit)
     implementation(libs.converter.moshi)
     implementation(libs.logging.interceptor)
     implementation(libs.okhttp)
     implementation(libs.moshi.kotlin)
-    
-    // Coroutines
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
-    
-    // Images
     implementation(libs.coil.compose)
-    
-    // Security
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     
-    // ⭐ Supabase
+    // Supabase
     implementation(libs.supabase.storage)
     implementation(libs.supabase.auth)
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.logging)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
-    
-    // ⭐ Environment variables
     implementation(libs.dotenv)
     
-    // Testing
     testImplementation(libs.junit)
     testImplementation(libs.androidx.junit)
     testImplementation(libs.androidx.core)
@@ -252,7 +225,6 @@ dependencies {
     "ksp"(libs.moshi.kotlin.codegen)
 }
 
-// ✅ مهمة لإنشاء debug.keystore تلقائياً
 tasks.register("createDebugKeystore") {
     doLast {
         val debugKeystore = file("${rootDir}/debug.keystore")
@@ -276,7 +248,6 @@ tasks.register("createDebugKeystore") {
     }
 }
 
-// ✅ تأكد من إنشاء debug.keystore قبل البناء
 tasks.named("preBuild") {
     dependsOn("createDebugKeystore")
 }
