@@ -1,4 +1,6 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
+import java.io.FileInputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -8,12 +10,34 @@ plugins {
     alias(libs.plugins.secrets)
     alias(libs.plugins.google.services)
     alias(libs.plugins.kotlinx.serialization)
-    // ❌ تم حذف kotlin-parcelize
+    // ❌ تم حذف kotlin-parcelize نهائياً
 }
 
+// قراءة ملف local.properties لتخزين المفاتيح بشكل آمن
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+
+// قراءة متغيرات البيئة أو local.properties
+val keystorePath: String = System.getenv("KEYSTORE_PATH") 
+    ?: localProperties.getProperty("KEYSTORE_PATH") 
+    ?: "${rootDir}/my-upload-key.jks"
+
+val storePassword: String = System.getenv("STORE_PASSWORD") 
+    ?: localProperties.getProperty("STORE_PASSWORD") 
+    ?: ""
+
+val keyPassword: String = System.getenv("KEY_PASSWORD") 
+    ?: localProperties.getProperty("KEY_PASSWORD") 
+    ?: ""
+
 android {
-    namespace = "com.example"
-    compileSdk { version = release(36) { minorApiLevel = 1 } }
+    namespace = "com.aistudio.hiddennumber.game"
+    
+    // ✅ استخدام صيغة متوافقة مع AGP
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.aistudio.hiddennumber.game"
@@ -24,102 +48,199 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
-        // ⭐ Supabase variables from gradle.properties
+        // قراءة Supabase من gradle.properties
         val supabaseUrl: String = project.properties["SUPABASE_URL"] as? String ?: ""
         val supabaseAnonKey: String = project.properties["SUPABASE_ANON_KEY"] as? String ?: ""
         
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        
+        // إضافة BuildConfig للتطبيق
+        buildConfigField("String", "VERSION_NAME", "\"${defaultConfig.versionName}\"")
+        buildConfigField("Int", "VERSION_CODE", "${defaultConfig.versionCode}")
     }
 
     signingConfigs {
-        val releaseKeystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-        val releaseKeystoreFile = file(releaseKeystorePath)
-        if (releaseKeystoreFile.exists()) {
+        // ✅ التحقق من وجود الملف وكلمات المرور قبل إنشاء config
+        val releaseKeystoreFile = file(keystorePath)
+        if (releaseKeystoreFile.exists() && storePassword.isNotEmpty() && keyPassword.isNotEmpty()) {
             create("release") {
                 storeFile = releaseKeystoreFile
-                storePassword = System.getenv("STORE_PASSWORD")
+                storePassword = storePassword
                 keyAlias = "upload"
-                keyPassword = System.getenv("KEY_PASSWORD")
+                keyPassword = keyPassword
+                
+                // ✅ تحسينات الأمان
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
             }
+        } else {
+            // ⚠️ تحذير للمطور: لا يوجد مفتاح release
+            println("⚠️ Release keystore not found or passwords missing. Release builds will use debug signing.")
         }
-        val localDebugKeystore = file("${rootDir}/debug.keystore")
-        if (localDebugKeystore.exists()) {
-            create("debugConfig") {
-                storeFile = localDebugKeystore
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
-            }
+        
+        // ✅ Debug signing config
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
     buildTypes {
         release {
             isCrunchPngs = false
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            val customRelease = signingConfigs.findByName("release")
-            if (customRelease != null) {
-                signingConfig = customRelease
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            
+            // ✅ استخدام signingConfig.release فقط إذا كان موجوداً
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning != null) {
+                signingConfig = releaseSigning
+            } else {
+                signingConfig = signingConfigs.findByName("debugConfig")
+                println("⚠️ Using debug signing for release build (no release keystore found)")
             }
+            
+            // ✅ تحسينات الأداء
+            isDebuggable = false
+            isJniDebuggable = false
+            isRenderscriptDebuggable = false
+            isRenderscriptOptimLevel = 3
         }
+        
         debug {
-            val customDebug = signingConfigs.findByName("debugConfig")
-            if (customDebug != null) {
-                signingConfig = customDebug
-            }
+            signingConfig = signingConfigs.findByName("debugConfig")
+            isDebuggable = true
+            isMinifyEnabled = false
+            
+            // ✅ إضافة تطبيقات الاختبار
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+        
+        // ✅ إضافة build type للاختبارات
+        create("staging") {
+            initWith(buildTypes.getByName("debug"))
+            signingConfig = signingConfigs.findByName("debugConfig")
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            matchingFallbacks = listOf("debug")
         }
     }
     
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    
+    kotlinOptions {
+        jvmTarget = "17"
+        // ✅ تحسينات Compose
+        freeCompilerArgs = freeCompilerArgs + listOf(
+            "-P",
+            "plugin:androidx.compose.compiler.plugins.kotlin:suppressKotlinVersionCompatibilityCheck=true"
+        )
     }
     
     buildFeatures {
         compose = true
         buildConfig = true
+        viewBinding = false // إذا لم تستخدم ViewBinding
+        dataBinding = false // إذا لم تستخدم DataBinding
     }
     
-    testOptions { unitTests { isIncludeAndroidResources = true } }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/gradle/incremental.annotation.processors"
+            excludes += "**/attach_hotspot_windows.dll"
+            excludes += "META-INF/licenses/**"
+            excludes += "META-INF/AL2.0"
+            excludes += "META-INF/LGPL2.1"
+        }
+    }
+    
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+        animationsDisabled = true
+    }
+    
+    // ✅ تحسين سرعة البناء
+    dexOptions {
+        preDexLibraries = true
+        maxProcessCount = 8
+    }
 }
 
+// ✅ تكوين Secrets Plugin
 secrets {
     propertiesFileName = ".env"
     defaultPropertiesFileName = ".env.example"
 }
 
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
+googleServices {
+    missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN
+}
 
 dependencies {
+    // Compose
     implementation(platform(libs.androidx.compose.bom))
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.compose.material.icons.core)
-    implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
+    implementation(libs.androidx.compose.material.icons.extended)
+    
+    // Core
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.room.ktx)
+    
+    // Room
     implementation(libs.androidx.room.runtime)
-    implementation(libs.coil.compose)
-    implementation(libs.converter.moshi)
+    implementation(libs.androidx.room.ktx)
+    
+    // Firebase
+    implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.ai)
     implementation(libs.firebase.appcheck.recaptcha)
+    
+    // Network
+    implementation(libs.retrofit)
+    implementation(libs.converter.moshi)
+    implementation(libs.logging.interceptor)
+    implementation(libs.okhttp)
+    implementation(libs.moshi.kotlin)
+    
+    // Coroutines
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.logging.interceptor)
-    implementation(libs.moshi.kotlin)
-    implementation(libs.okhttp)
+    
+    // Images
+    implementation(libs.coil.compose)
+    
+    // Security
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    implementation(libs.retrofit)
     
     // ⭐ Supabase
     implementation(libs.supabase.storage)
@@ -128,24 +249,77 @@ dependencies {
     implementation(libs.ktor.client.logging)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
+    
+    // ⭐ Environment variables
     implementation(libs.dotenv)
     
-    testImplementation(libs.androidx.compose.ui.test.junit4)
-    testImplementation(libs.androidx.core)
-    testImplementation(libs.androidx.junit)
+    // Testing
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.junit)
+    testImplementation(libs.androidx.core)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.runner)
+    
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    
+    // KSP
     "ksp"(libs.androidx.room.compiler)
     "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// ✅ مهمة لإنشاء debug.keystore تلقائياً
+tasks.register("createDebugKeystore") {
+    doLast {
+        val debugKeystore = file("${rootDir}/debug.keystore")
+        if (!debugKeystore.exists()) {
+            println("🔑 Creating debug.keystore...")
+            exec {
+                commandLine(
+                    "keytool", "-genkey", "-v",
+                    "-keystore", debugKeystore.absolutePath,
+                    "-storepass", "android",
+                    "-alias", "androiddebugkey",
+                    "-keypass", "android",
+                    "-dname", "CN=Android Debug,O=Android,C=US",
+                    "-keyalg", "RSA",
+                    "-keysize", "2048",
+                    "-validity", "10000"
+                )
+            }
+            println("✅ debug.keystore created successfully!")
+        }
+    }
+}
+
+// ✅ مهمة لطباعة معلومات الإصدار
+tasks.register("printVersionInfo") {
+    doLast {
+        println("""
+            ==============================
+            📱 App Version Information
+            ==============================
+            Version Name: ${android.defaultConfig.versionName}
+            Version Code: ${android.defaultConfig.versionCode}
+            Application ID: ${android.defaultConfig.applicationId}
+            Min SDK: ${android.defaultConfig.minSdk}
+            Target SDK: ${android.defaultConfig.targetSdk}
+            ==============================
+        """.trimIndent())
+    }
+}
+
+// ✅ تأكد من إنشاء debug.keystore قبل البناء
+tasks.named("preBuild") {
+    dependsOn("createDebugKeystore")
 }
