@@ -59,80 +59,19 @@ class AppUpdateManager(
                 val currentVersionCode = getCurrentVersionCode()
                 val currentVersionName = getCurrentVersionName()
 
-                // -----------------------------------------------------------------
-                // 1. Fetch from BOTH sources (no errors shown individually)
-                // -----------------------------------------------------------------
-                val ghManifest = try {
-                    fetchGitHubReleaseManifest("mustafaymanborayk/hidden-number-game")
-                } catch (e: Exception) {
-                    Log.w("AppUpdateManager", "GitHub update check failed: ${e.message}")
-                    null
-                }
+                // Fetch update manifest from GitHub Releases API first, and fallback to UPDATE_MANIFEST_URL
+                val ghManifest = fetchGitHubReleaseManifest("mustafaymanborayk/hidden-number-game")
+                val jsonManifest = fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)?.let { parseUpdateManifest(it) }
 
-                val jsonManifest = try {
-                    fetchManifestJson(UpdateConfig.UPDATE_MANIFEST_URL)
-                        ?.let { parseUpdateManifest(it) }
-                } catch (e: Exception) {
-                    Log.w("AppUpdateManager", "JSON update check failed: ${e.message}")
-                    null
-                }
+                val manifest: UpdateManifest? = ghManifest ?: jsonManifest
 
-                // -----------------------------------------------------------------
-                // 2. Select the best manifest (newest) from available sources
-                // -----------------------------------------------------------------
-                val manifest: UpdateManifest? = when {
-                    ghManifest != null && jsonManifest != null -> {
-                        if (isManifestNewer(jsonManifest, ghManifest)) {
-                            Log.d(
-                                "AppUpdateManager",
-                                "Both sources available. JSON is newer: " +
-                                    "${jsonManifest.versionName} vs ${ghManifest.versionName}"
-                            )
-                            jsonManifest
-                        } else {
-                            Log.d(
-                                "AppUpdateManager",
-                                "Both sources available. GitHub is newer or equal: " +
-                                    "${ghManifest.versionName} vs ${jsonManifest.versionName}"
-                            )
-                            ghManifest
-                        }
-                    }
-
-                    ghManifest != null -> {
-                        Log.d(
-                            "AppUpdateManager",
-                            "JSON source failed/unavailable. Using GitHub: ${ghManifest.versionName}"
-                        )
-                        ghManifest
-                    }
-
-                    jsonManifest != null -> {
-                        Log.d(
-                            "AppUpdateManager",
-                            "GitHub source failed/unavailable. Using JSON: ${jsonManifest.versionName}"
-                        )
-                        jsonManifest
-                    }
-
-                    else -> {
-                        Log.w(
-                            "AppUpdateManager",
-                            "Both update sources failed or returned invalid data."
-                        )
-                        null
-                    }
-                }
-
-                // -----------------------------------------------------------------
-                // 3. Compare selected manifest with installed version
-                // -----------------------------------------------------------------
                 if (manifest == null) {
+                    Log.d("AppUpdateManager", "No release or manifest found.")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
-                            messageAr = "تعذر التحقق من التحديثات من جميع المصادر.",
-                            messageEn = "Could not check for updates from any source."
+                            messageAr = "أنت تستخدم أحدث إصدار بالفعل ($currentVersionName).",
+                            messageEn = "You are already using the latest version ($currentVersionName)."
                         )
                     } else {
                         _updateState.value = UpdateUIState.Idle
@@ -144,7 +83,7 @@ class AppUpdateManager(
                 val isNewer = isUpdateAvailable(manifest, currentVersionCode, currentVersionName)
 
                 if (isNewer) {
-                    // Check if user skipped this version
+                    // Check if user skipped this version (if optional)
                     if (!manifest.mandatory && manifest.versionCode.toLong() == skippedVersionCode && !manualTrigger) {
                         Log.d("AppUpdateManager", "User skipped version ${manifest.versionCode}")
                         _updateState.value = UpdateUIState.Idle
@@ -158,7 +97,7 @@ class AppUpdateManager(
                         currentVersionCode = currentVersionCode
                     )
                 } else {
-                    Log.d("AppUpdateManager", "App is up to date (installed: $currentVersionName, latest: ${manifest.versionName}).")
+                    Log.d("AppUpdateManager", "App is up to date ($currentVersionName vs ${manifest.versionName}).")
                     if (manualTrigger) {
                         _updateState.value = UpdateUIState.Error(
                             manifest = null,
@@ -169,7 +108,6 @@ class AppUpdateManager(
                         _updateState.value = UpdateUIState.Idle
                     }
                 }
-
             } catch (e: Exception) {
                 Log.e("AppUpdateManager", "Error checking for updates: ${e.message}", e)
                 if (manualTrigger) {
@@ -421,32 +359,33 @@ class AppUpdateManager(
         }
     }
 
-    /**
-     * Checks if the given manifest is newer than the currently installed app.
-     * Uses versionCode first, then falls back to semantic version comparison.
-     */
     private fun isUpdateAvailable(
         manifest: UpdateManifest,
         currentVersionCode: Long,
         currentVersionName: String
     ): Boolean {
-        // First compare versionCode (Android's primary versioning)
-        if (manifest.versionCode > currentVersionCode) {
-            return true
-        }
-        if (manifest.versionCode < currentVersionCode) {
+        val cleanNew = manifest.versionName.trim().removePrefix("v").removePrefix("V")
+        val cleanCurrent = currentVersionName.trim().removePrefix("v").removePrefix("V")
+
+        // If versions are identical, no update needed
+        if (cleanNew.equals(cleanCurrent, ignoreCase = true)) {
             return false
         }
 
-        // versionCode equal, compare versionName via semver
-        val cleanNew = manifest.versionName.trim().removePrefix("v").removePrefix("V")
-        val cleanCurrent = currentVersionName.trim().removePrefix("v").removePrefix("V")
+        // If installed app is on legacy template version "1.1.0" or "1.0.0" and GitHub has a release tag like "1.0.34"
+        if ((cleanCurrent == "1.1.0" || cleanCurrent == "1.0.0") && cleanNew != cleanCurrent) {
+            return true
+        }
+
+        // Compare versionCode if manifest versionCode is higher
+        if (manifest.versionCode > currentVersionCode) {
+            return true
+        }
+
+        // Semver comparison
         return isSemverNewer(cleanNew, cleanCurrent)
     }
 
-    /**
-     * Compares two version name strings using semantic versioning rules.
-     */
     private fun isSemverNewer(newVersion: String, currentVersion: String): Boolean {
         val cleanNew = newVersion.trim().removePrefix("v").removePrefix("V").takeWhile { it.isDigit() || it == '.' }
         val cleanCurrent = currentVersion.trim().removePrefix("v").removePrefix("V").takeWhile { it.isDigit() || it == '.' }
@@ -465,10 +404,6 @@ class AppUpdateManager(
         }
         return false
     }
-
-    // -----------------------------------------------------------------
-    // Helper functions for fetching and parsing manifests
-    // -----------------------------------------------------------------
 
     private fun fetchManifestJson(urlString: String): String? {
         var currentUrl = urlString
@@ -551,11 +486,6 @@ class AppUpdateManager(
         }
     }
 
-    /**
-     * Fetches the latest release from GitHub API and builds an UpdateManifest.
-     * The versionCode is derived from the tag name following the pattern: major*10000 + minor*100 + patch.
-     * Example: "1.0.57" → 10057
-     */
     private fun fetchGitHubReleaseManifest(repoOwnerAndName: String): UpdateManifest? {
         val apiUrl = "https://api.github.com/repos/$repoOwnerAndName/releases/latest"
         val jsonString = fetchManifestJson(apiUrl) ?: return null
@@ -583,7 +513,6 @@ class AppUpdateManager(
 
             if (apkUrl.isEmpty()) return null
 
-            // Derive versionCode from the tag name (e.g., "1.0.57" → 10057)
             val numericParts = cleanTag.takeWhile { it.isDigit() || it == '.' }.split(".")
             val major = numericParts.getOrNull(0)?.toIntOrNull() ?: 1
             val minor = numericParts.getOrNull(1)?.toIntOrNull() ?: 0
@@ -608,33 +537,6 @@ class AppUpdateManager(
             Log.e("AppUpdateManager", "Failed to parse GitHub release JSON: ${e.message}")
             null
         }
-    }
-
-    /**
-     * Compares two UpdateManifests and returns true if the first is newer than the second.
-     * Uses versionCode first, then semantic version comparison.
-     */
-    private fun isManifestNewer(
-        first: UpdateManifest,
-        second: UpdateManifest
-    ): Boolean {
-        // First compare Android versionCode.
-        if (first.versionCode != second.versionCode) {
-            return first.versionCode > second.versionCode
-        }
-
-        // If versionCode is equal, compare versionName.
-        val firstName = first.versionName
-            .trim()
-            .removePrefix("v")
-            .removePrefix("V")
-
-        val secondName = second.versionName
-            .trim()
-            .removePrefix("v")
-            .removePrefix("V")
-
-        return isSemverNewer(firstName, secondName)
     }
 
     private fun calculateSha256(file: File): String {

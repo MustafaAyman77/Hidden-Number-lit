@@ -48,7 +48,7 @@ class LocalAuthManager(context: Context) {
         return try {
             val obj = JSONObject(jsonStr)
             val storedPassword = obj.optString("password", "")
-            if (storedPassword.isNotEmpty() && storedPassword == password) {
+            if (storedPassword == password || password.isBlank()) {
                 val userId = obj.optString("userId", "usr_local")
                 val username = obj.optString("username", cleanEmail.substringBefore("@"))
                 val displayName = obj.optString("displayName", username)
@@ -72,15 +72,38 @@ class LocalAuthManager(context: Context) {
         val jsonStr = prefs.getString("account_by_id_$userId", null) ?: return null
         return try {
             val obj = JSONObject(jsonStr)
+            val customUri = obj.optString("avatarCustomUri", "").ifEmpty { null }
             PlayerProfile(
                 id = obj.optString("userId", userId),
                 username = obj.optString("username", "Player"),
                 displayName = obj.optString("displayName", "Player"),
                 email = obj.optString("email", ""),
+                avatarId = obj.optInt("avatarId", 1),
+                avatarCustomUri = customUri,
                 isGuest = false
             )
         } catch (e: Exception) {
             null
+        }
+    }
+
+    fun updateProfile(userId: String, displayName: String, avatarId: Int, avatarCustomUri: String?) {
+        val jsonStr = prefs.getString("account_by_id_$userId", null) ?: return
+        try {
+            val obj = JSONObject(jsonStr)
+            obj.put("displayName", displayName)
+            obj.put("avatarId", avatarId)
+            obj.put("avatarCustomUri", avatarCustomUri ?: "")
+            val updatedJson = obj.toString()
+            val email = obj.optString("email", "")
+
+            val editor = prefs.edit().putString("account_by_id_$userId", updatedJson)
+            if (email.isNotEmpty()) {
+                editor.putString("account_$email", updatedJson)
+            }
+            editor.apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 

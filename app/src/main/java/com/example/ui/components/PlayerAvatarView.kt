@@ -1,9 +1,6 @@
 package com.example.ui.components
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -29,33 +26,30 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.data.supabase.SupabaseClientProvider
 import com.example.ui.theme.DarkSurfaceGlass
 import com.example.ui.theme.GlassBorder
 import com.example.ui.theme.NeonCyan
@@ -65,7 +59,6 @@ import com.example.ui.theme.NeonRed
 import com.example.ui.theme.NeonYellow
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import kotlinx.coroutines.launch
 
 data class AvatarCharacter(
     val id: Int,
@@ -95,6 +88,29 @@ fun getAvatarCharacter(id: Int): AvatarCharacter {
     return PRESET_AVATARS.find { it.id == id } ?: PRESET_AVATARS[0]
 }
 
+fun compressUriToBase64(context: android.content.Context, uri: Uri): String? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+        inputStream.close()
+        if (originalBitmap == null) return null
+
+        val maxDim = 120
+        val scale = Math.min(maxDim.toFloat() / originalBitmap.width, maxDim.toFloat() / originalBitmap.height)
+        val targetW = Math.max(1, (originalBitmap.width * scale).toInt())
+        val targetH = Math.max(1, (originalBitmap.height * scale).toInt())
+
+        val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(originalBitmap, targetW, targetH, true)
+        val baos = java.io.ByteArrayOutputStream()
+        scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 65, baos)
+        val bytes = baos.toByteArray()
+        val base64Str = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        "data:image/jpeg;base64,$base64Str"
+    } catch (e: Exception) {
+        null
+    }
+}
+
 @Composable
 fun PlayerAvatarView(
     avatarId: Int,
@@ -107,6 +123,20 @@ fun PlayerAvatarView(
     val character = getAvatarCharacter(avatarId)
     val context = LocalContext.current
     var isImageError by remember(customUri) { mutableStateOf(false) }
+
+    val decodedBitmap = remember(customUri) {
+        if (!customUri.isNullOrEmpty()) {
+            try {
+                if (customUri.startsWith("data:image") || customUri.startsWith("data:;base64,") || (!customUri.startsWith("file:") && !customUri.startsWith("content:") && customUri.length > 80)) {
+                    val cleanBase64 = customUri.substringAfter("base64,")
+                    val bytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                } else null
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+    }
 
     Box(
         modifier = modifier
@@ -125,25 +155,29 @@ fun PlayerAvatarView(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (!customUri.isNullOrEmpty() && !isImageError) {
-            // عرض الصورة من Supabase Storage (رابط مباشر)
+        if (decodedBitmap != null) {
+            androidx.compose.foundation.Image(
+                bitmap = decodedBitmap.asImageBitmap(),
+                contentDescription = "Custom Profile Picture",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+            )
+        } else if (!customUri.isNullOrEmpty() && !isImageError) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(customUri)
                     .crossfade(true)
-                    .diskCacheKey(customUri)
                     .build(),
                 contentDescription = "Custom Profile Picture",
                 contentScale = ContentScale.Crop,
-                onError = { 
-                    isImageError = true 
-                },
+                onError = { isImageError = true },
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
             )
         } else {
-            // عرض الـ Emoji الافتراضي
             Text(
                 text = character.emoji,
                 fontSize = (size.value * 0.5f).sp
@@ -159,115 +193,28 @@ fun AvatarSelectionGrid(
     languageAr: Boolean,
     onAvatarSelected: (Int) -> Unit,
     onCustomUriChanged: (String?) -> Unit,
-    onUploadComplete: (String) -> Unit = {},
-    onUploadError: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val storageService = SupabaseClientProvider.storageService
-    val authService = SupabaseClientProvider.authService
-    var isUploading by remember { mutableStateOf(false) }
-    var uploadError by remember { mutableStateOf<String?>(null) }
-    var currentUserId by remember { mutableStateOf<String?>(null) }
-    var hasPermission by remember { 
-        mutableStateOf(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.READ_MEDIA_IMAGES
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.READ_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED
-            }
-        )
-    }
-    
-    // تحميل userId عند بداية الـ Composable
-    LaunchedEffect(Unit) {
-        currentUserId = authService.getCurrentUserId()
-        if (currentUserId == null) {
-            uploadError = if (languageAr) "يرجى تسجيل الدخول أولاً" else "Please login first"
-        }
-    }
-    
-    // طلب الأذونات
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        hasPermission = permissions.values.all { it }
-        if (!hasPermission) {
-            uploadError = if (languageAr) "الأذونات مطلوبة لاختيار الصور" else "Permissions required to select images"
-            onUploadError(uploadError ?: "Permission denied")
-        }
-    }
-    
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        if (uri != null && !isUploading) {
-            // التحقق من الأذونات
-            if (!hasPermission) {
-                val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    arrayOf(
-                        Manifest.permission.READ_MEDIA_IMAGES,
-                        Manifest.permission.READ_MEDIA_VIDEO
-                    )
+        if (uri != null) {
+            try {
+                val compressedBase64 = compressUriToBase64(context, uri)
+                if (compressedBase64 != null) {
+                    onCustomUriChanged(compressedBase64)
                 } else {
-                    arrayOf(
-                        Manifest.permission.READ_EXTERNAL_STORAGE
-                    )
-                }
-                permissionLauncher.launch(permissions)
-                return@rememberLauncherForActivityResult
-            }
-            
-            // التحقق من تسجيل الدخول
-            if (currentUserId == null) {
-                uploadError = if (languageAr) "يرجى تسجيل الدخول أولاً" else "Please login first"
-                onUploadError(uploadError ?: "Not authenticated")
-                return@rememberLauncherForActivityResult
-            }
-            
-            scope.launch {
-                isUploading = true
-                uploadError = null
-                
-                try {
-                    val userId = currentUserId ?: run {
-                        uploadError = if (languageAr) "فشل الحصول على معرف المستخدم" else "Failed to get user ID"
-                        onUploadError(uploadError ?: "User ID error")
-                        isUploading = false
-                        return@launch
-                    }
-                    
-                    val result = storageService.uploadAvatar(context, uri, userId)
-                    result.onSuccess { publicUrl ->
-                        onUploadComplete(publicUrl)
-                        onCustomUriChanged(publicUrl)
-                    }.onFailure { error ->
-                        val message = when {
-                            error.message?.contains("permission", ignoreCase = true) == true -> 
-                                if (languageAr) "ليس لديك صلاحية لرفع الصورة" else "Permission denied"
-                            error.message?.contains("bucket", ignoreCase = true) == true ->
-                                if (languageAr) "خطأ في المجلد" else "Bucket error"
-                            error.message?.contains("network", ignoreCase = true) == true ->
-                                if (languageAr) "خطأ في الاتصال بالشبكة" else "Network error"
-                            else -> error.message ?: if (languageAr) "فشل رفع الصورة" else "Upload failed"
+                    val file = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        java.io.FileOutputStream(file).use { output ->
+                            input.copyTo(output)
                         }
-                        uploadError = message
-                        onUploadError(message)
                     }
-                } catch (e: Exception) {
-                    val message = e.message ?: if (languageAr) "حدث خطأ غير متوقع" else "Unexpected error"
-                    uploadError = message
-                    onUploadError(message)
-                } finally {
-                    isUploading = false
+                    onCustomUriChanged(Uri.fromFile(file).toString())
                 }
+            } catch (e: Exception) {
+                onCustomUriChanged(uri.toString())
             }
         }
     }
@@ -309,30 +256,20 @@ fun AvatarSelectionGrid(
                             color = TextPrimary
                         )
                         Text(
-                            text = when {
-                                isUploading -> if (languageAr) "⏳ جاري رفع الصورة..." else "⏳ Uploading photo..."
-                                uploadError != null -> "❌ $uploadError"
-                                !customUri.isNullOrEmpty() -> if (languageAr) "✅ تم رفع الصورة بنجاح" else "✅ Photo uploaded successfully"
-                                !hasPermission -> if (languageAr) "🔒 يرجى منح أذونات الصور" else "🔒 Please grant image permissions"
-                                else -> if (languageAr) "📸 يمكنك رفع صورتك أو اختيار شخصية" else "📸 Upload photo or pick character"
+                            text = if (!customUri.isNullOrEmpty()) {
+                                if (languageAr) "تمت إضافة صورة من المعرض 📸" else "Custom photo uploaded 📸"
+                            } else {
+                                if (languageAr) "يمكنك رفع صورتك أو اختيار شخصية" else "Upload photo or pick character"
                             },
                             fontSize = 11.sp,
-                            color = when {
-                                uploadError != null -> NeonRed
-                                isUploading -> NeonYellow
-                                !customUri.isNullOrEmpty() -> NeonEmerald
-                                else -> TextSecondary
-                            }
+                            color = if (!customUri.isNullOrEmpty()) NeonEmerald else TextSecondary
                         )
                     }
                 }
 
                 Row {
-                    if (!customUri.isNullOrEmpty() && !isUploading) {
-                        IconButton(onClick = { 
-                            onCustomUriChanged(null)
-                            uploadError = null
-                        }) {
+                    if (!customUri.isNullOrEmpty()) {
+                        IconButton(onClick = { onCustomUriChanged(null) }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Remove photo",
@@ -342,48 +279,19 @@ fun AvatarSelectionGrid(
                     }
 
                     OutlinedButton(
-                        onClick = { 
-                            if (!hasPermission) {
-                                val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    arrayOf(
-                                        Manifest.permission.READ_MEDIA_IMAGES,
-                                        Manifest.permission.READ_MEDIA_VIDEO
-                                    )
-                                } else {
-                                    arrayOf(
-                                        Manifest.permission.READ_EXTERNAL_STORAGE
-                                    )
-                                }
-                                permissionLauncher.launch(permissions)
-                            } else {
-                                photoPickerLauncher.launch("image/*")
-                            }
-                        },
+                        onClick = { photoPickerLauncher.launch("image/*") },
                         shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        enabled = !isUploading
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        if (isUploading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = NeonCyan,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.AddPhotoAlternate,
-                                contentDescription = "Pick Photo",
-                                tint = NeonCyan,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = "Pick Photo",
+                            tint = NeonCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(modifier = Modifier.size(6.dp))
                         Text(
-                            text = if (isUploading) {
-                                if (languageAr) "جاري..." else "Uploading..."
-                            } else {
-                                if (languageAr) "اختر صورة" else "Pick Photo"
-                            },
+                            text = if (languageAr) "اختر صورة" else "Pick Photo",
                             fontSize = 12.sp,
                             color = NeonCyan
                         )
@@ -422,10 +330,9 @@ fun AvatarSelectionGrid(
                             color = if (isSelected) character.colorStart else GlassBorder,
                             shape = RoundedCornerShape(16.dp)
                         )
-                        .clickable(enabled = !isUploading) {
+                        .clickable {
                             onAvatarSelected(character.id)
                             onCustomUriChanged(null) // clear custom photo to use character
-                            uploadError = null
                         }
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
