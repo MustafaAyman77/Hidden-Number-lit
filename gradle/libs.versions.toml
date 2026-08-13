@@ -121,3 +121,4 @@ google-services = { id = "com.google.gms.google-services", version.ref = "google
 
 # ⭐ بلاجين Serialization الجديد
 kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }
