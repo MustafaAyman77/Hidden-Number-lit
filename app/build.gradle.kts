@@ -12,14 +12,14 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
 }
 
-// قراءة local.properties
+// ✅ قراءة local.properties لتخزين المفاتيح بشكل آمن
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localProperties.load(FileInputStream(localPropertiesFile))
 }
 
-// قراءة المفاتيح
+// ✅ قراءة متغيرات البيئة أو local.properties
 val keystorePath: String = System.getenv("KEYSTORE_PATH") 
     ?: localProperties.getProperty("KEYSTORE_PATH") 
     ?: "${rootDir}/my-upload-key.jks"
@@ -45,7 +45,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
-        // Supabase
+        // ✅ Supabase من gradle.properties
         val supabaseUrl: String = project.properties["SUPABASE_URL"] as? String ?: ""
         val supabaseAnonKey: String = project.properties["SUPABASE_ANON_KEY"] as? String ?: ""
         
@@ -56,7 +56,7 @@ android {
     }
 
     signingConfigs {
-        // Release signing
+        // ✅ Release signing - التحقق من وجود الملف وكلمات المرور
         val releaseKeystoreFile = file(keystorePath)
         if (releaseKeystoreFile.exists() && storePassword.isNotEmpty() && keyPassword.isNotEmpty()) {
             create("release") {
@@ -70,10 +70,10 @@ android {
                 enableV4Signing = true
             }
         } else {
-            println("⚠️ Release keystore not found or passwords missing.")
+            println("⚠️ Release keystore not found or passwords missing. Release builds will use debug signing.")
         }
         
-        // Debug signing
+        // ✅ Debug signing
         create("debugConfig") {
             storeFile = file("${rootDir}/debug.keystore")
             storePassword = "android"
@@ -107,6 +107,7 @@ android {
             versionNameSuffix = "-debug"
         }
 
+        // ✅ Build type للاختبارات
         create("staging") {
             initWith(buildTypes.getByName("debug"))
             signingConfig = signingConfigs.findByName("debugConfig")
@@ -126,11 +127,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // ✅ Kotlin compiler options باستخدام الصيغة الجديدة
+    // ✅ Kotlin compiler options باستخدام الصيغة الجديدة المتوافقة مع AGP 9
     kotlin {
         compilerOptions {
             jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-            // إزالة suppressKotlinVersionCompatibilityCheck
         }
     }
 
@@ -163,6 +163,7 @@ android {
     }
 }
 
+// ✅ تكوين Secrets Plugin
 secrets {
     propertiesFileName = ".env"
     defaultPropertiesFileName = ".env.example"
@@ -216,7 +217,7 @@ dependencies {
     // Security
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     
-    // Supabase
+    // ⭐ Supabase
     implementation(libs.supabase.storage)
     implementation(libs.supabase.auth)
     implementation(libs.ktor.client.android)
@@ -224,7 +225,7 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     
-    // Environment
+    // ⭐ Environment variables
     implementation(libs.dotenv)
     
     // Testing
@@ -251,7 +252,7 @@ dependencies {
     "ksp"(libs.moshi.kotlin.codegen)
 }
 
-// ✅ مهمة لإنشاء debug.keystore
+// ✅ مهمة لإنشاء debug.keystore تلقائياً
 tasks.register("createDebugKeystore") {
     doLast {
         val debugKeystore = file("${rootDir}/debug.keystore")
@@ -275,6 +276,7 @@ tasks.register("createDebugKeystore") {
     }
 }
 
+// ✅ تأكد من إنشاء debug.keystore قبل البناء
 tasks.named("preBuild") {
     dependsOn("createDebugKeystore")
 }
