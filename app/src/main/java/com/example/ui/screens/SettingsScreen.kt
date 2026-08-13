@@ -140,8 +140,8 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = if (languageAr) "لعبة الرقم المخفي v1.0 - تم تطويرها بأحدث تقنيات أندرويد (Kotlin, Jetpack Compose, Material 3, WebSockets, Audio Track Real-Time Voice)."
-                    else "Hidden Number Game v1.0 - Built with modern Android technologies (Kotlin, Jetpack Compose, Material 3, WebSockets, Real-Time Audio).",
+                    text = if (languageAr) "لعبة الرقم المخفي v1.0.113 - تم تطويرها بأحدث تقنيات أندرويد (Kotlin, Jetpack Compose, Material 3, WebSockets, Audio Track Real-Time Voice)."
+                    else "Hidden Number Game v1.0.113 - Built with modern Android technologies (Kotlin, Jetpack Compose, Material 3, WebSockets, Real-Time Audio).",
                     fontSize = 12.sp,
                     color = TextSecondary,
                     lineHeight = 18.sp
