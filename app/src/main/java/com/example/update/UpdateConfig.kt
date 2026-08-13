@@ -1,10 +1,18 @@
 package com.example.update
 
 /**
-  Configuration object for the In-App Auto Update system.
-  Update [UPDATE_MANIFEST_URL] to point to your hosted version.json on GitHub Releases or HTTPS server.
+ * ✅ إعدادات نظام التحديث التلقائي
  */
 object UpdateConfig {
-    // SINGLE CONFIGURATION URL for the update manifest (version.json)
-    const val UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/mustafaymanborayk/hidden-number-game/main/version.json"
+    // ✅ رابط ملف الإصدارات (JSON) - استخدم الرابط الخام (raw)
+    const val UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/MustafaAyman77/Hidden-Number-lit/main/version.json"
+    
+    // ✅ اسم المستودع على GitHub
+    const val GITHUB_REPO = "MustafaAyman77/Hidden-Number-lit"
+    
+    // ✅ مدة التحقق من التحديث (بالمللي ثانية) - 6 ساعات
+    const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+    
+    // ✅ مهلة الاتصال (بالثواني)
+    const val CONNECTION_TIMEOUT = 30
 }
