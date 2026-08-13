@@ -58,6 +58,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Supabase Auth & Profile Services
     private val supabaseAuthService = com.example.data.supabase.SupabaseAuthService()
     private val supabaseProfileService = com.example.data.supabase.SupabaseProfileService()
+    private val supabaseStorageService = com.example.data.supabase.SupabaseStorageService()
     private val secureTokenManager = com.example.data.supabase.SecureTokenManager(application)
     private val localAuthManager = com.example.data.supabase.LocalAuthManager(application)
 
@@ -832,11 +833,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val session = _currentSession.value
         if (session != null && !updated.isGuest) {
             viewModelScope.launch {
+                var finalAvatarStr = newCustomUri ?: newAvatarId.toString()
+
+                if (!newCustomUri.isNullOrEmpty() && (newCustomUri.startsWith("content://") || newCustomUri.startsWith("file://"))) {
+                    try {
+                        val uploadResult = supabaseStorageService.uploadAvatar(
+                            context = getApplication(),
+                            uri = android.net.Uri.parse(newCustomUri),
+                            userId = session.userId,
+                            accessToken = session.accessToken
+                        )
+                        if (uploadResult.isSuccess) {
+                            finalAvatarStr = uploadResult.getOrNull() ?: finalAvatarStr
+                            // Update local avatar URL to public Supabase URL
+                            val syncedProfile = _playerProfile.value.copy(avatarCustomUri = finalAvatarStr)
+                            _playerProfile.value = syncedProfile
+                            saveProfileToPrefs(syncedProfile)
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MainViewModel", "Avatar upload exception: ${e.message}")
+                    }
+                }
+
                 supabaseProfileService.updateDisplayMetadata(
                     userId = session.userId,
                     accessToken = session.accessToken,
                     displayName = updated.displayName,
-                    avatar = newAvatarId.toString()
+                    avatar = finalAvatarStr
                 )
             }
         }
