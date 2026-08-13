@@ -22,22 +22,23 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import kotlin.collections.LinkedHashSet
 
 class OnlineNetworkManager(private val scope: CoroutineScope) {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS) // Infinite read timeout for WS
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .pingInterval(10, TimeUnit.SECONDS) // Ping frames keep WS alive on slow networks
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
+        .pingInterval(10, TimeUnit.SECONDS)
         .build()
 
     private var webSocket: WebSocket? = null
     private var currentRoomCode: String? = null
     private var currentMyPlayerId: String? = null
-    private var pollingJob: Job? = null
     private var reconnectJob: Job? = null
     private var lastVoiceSendTime = 0L
+    private var isReconnecting = false
 
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
@@ -45,20 +46,28 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
     private val _latencyMs = MutableStateFlow(35)
     val latencyMs: StateFlow<Int> = _latencyMs.asStateFlow()
 
-    private val _incomingMessages = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 64)
+    private val _incomingMessages = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 128)
     val incomingMessages: SharedFlow<NetworkMessage> = _incomingMessages.asSharedFlow()
 
     private val _errorEvents = MutableSharedFlow<com.example.data.model.AppError>(extraBufferCapacity = 16)
     val errorEvents: SharedFlow<com.example.data.model.AppError> = _errorEvents.asSharedFlow()
 
+    private val sentMessageCache = LinkedHashSet<String>()
+    private val processedMsgKeys = LinkedHashSet<String>()
+
+    /**
+     * ✅ الاتصال بالغرفة عبر WebSocket فقط (Real-time)
+     */
     fun connectToRoom(roomCode: String, myPlayerId: String) {
         disconnect()
+
         val cleanCode = roomCode.uppercase().trim()
         currentRoomCode = cleanCode
         currentMyPlayerId = myPlayerId
+        isReconnecting = false
 
         val wsUrl = "wss://ntfy.sh/hn_game_$cleanCode/ws"
-        Log.d("OnlineNetworkManager", "Connecting WS to $wsUrl")
+        Log.d("NetworkManager", "🔌 Connecting WebSocket: $wsUrl")
 
         val request = Request.Builder()
             .url(wsUrl)
@@ -66,14 +75,19 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("OnlineNetworkManager", "WebSocket Connected")
+                Log.d("NetworkManager", "✅ WebSocket Connected!")
                 _isConnected.value = true
+                isReconnecting = false
+
+                // إرسال رسالة انضمام فورية عند فتح الاتصال
+                sendMessage("JOIN", myPlayerId, "", "")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val jsonObj = JSONObject(text)
                     val messageBody = jsonObj.optString("message", "")
+
                     if (messageBody.isNotEmpty()) {
                         parseAndEmitMessage(messageBody)
                     } else if (jsonObj.has("type")) {
@@ -85,42 +99,72 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("OnlineNetworkManager", "WebSocket failed: ${t.message}, switching fallback")
+                Log.e("NetworkManager", "❌ WebSocket failed: ${t.message}")
                 _isConnected.value = false
+
+                if (!isReconnecting) {
+                    scheduleAutoReconnect(cleanCode, myPlayerId)
+                }
+
                 scope.launch {
                     _errorEvents.emit(com.example.data.model.AppError.NetworkConnectionFailed())
                 }
-                scheduleAutoReconnect(cleanCode, myPlayerId)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d("NetworkManager", "🔌 WebSocket closed: $reason")
                 _isConnected.value = false
+
+                if (code != 1000 && !isReconnecting) {
+                    scheduleAutoReconnect(cleanCode, myPlayerId)
+                }
             }
         })
-
-        // Always run lightweight background HTTP poll alongside WS as a safety fallback
-        startHttpFallbackPolling(cleanCode)
     }
 
+    /**
+     * ✅ إعادة الاتصال التلقائي السريع
+     */
     private fun scheduleAutoReconnect(roomCode: String, myPlayerId: String) {
         reconnectJob?.cancel()
+        isReconnecting = true
+
         reconnectJob = scope.launch(Dispatchers.IO) {
-            delay(4000)
+            delay(1500)
+
             if (currentRoomCode == roomCode && !_isConnected.value) {
-                Log.d("OnlineNetworkManager", "Attempting automatic WebSocket reconnect...")
+                Log.d("NetworkManager", "🔄 Attempting auto-reconnect...")
                 connectToRoom(roomCode, myPlayerId)
+                isReconnecting = false
             }
         }
     }
 
+    /**
+     * ✅ إرسال رسالة بسرعة
+     */
     fun sendMessage(type: String, senderId: String, senderName: String, payload: String) {
         val room = currentRoomCode ?: return
 
-        // Throttle high-frequency voice frames to prevent clogging weak connections
+        // التحكم في معدل إرسال الصوت
         if (type == "VOICE") {
             val now = System.currentTimeMillis()
-            if (now - lastVoiceSendTime < 220) return
+            if (now - lastVoiceSendTime < 150) return
             lastVoiceSendTime = now
+        }
+
+        // منع تكرار رسائل JOIN المفرطة
+        if (type == "JOIN") {
+            val key = "JOIN_$senderId"
+            if (sentMessageCache.contains(key)) return
+            sentMessageCache.add(key)
+            if (sentMessageCache.size > 50) {
+                val iterator = sentMessageCache.iterator()
+                if (iterator.hasNext()) {
+                    iterator.next()
+                    iterator.remove()
+                }
+            }
         }
 
         val json = JSONObject().apply {
@@ -133,7 +177,6 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
 
         scope.launch(Dispatchers.IO) {
             try {
-                // Post to ntfy topic endpoint
                 val url = "https://ntfy.sh/hn_game_$room"
                 val body = json.toRequestBody("text/plain".toMediaType())
                 val request = Request.Builder()
@@ -144,53 +187,22 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
                 val startTime = System.currentTimeMillis()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
-                        _latencyMs.value = (System.currentTimeMillis() - startTime).toInt().coerceAtLeast(15)
+                        val latency = (System.currentTimeMillis() - startTime).toInt().coerceIn(15, 500)
+                        _latencyMs.value = latency
+                        Log.d("NetworkManager", "📤 Sent: $type ($latency ms)")
+                    } else {
+                        Log.e("NetworkManager", "❌ Send failed: ${response.code}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e("OnlineNetworkManager", "Failed to send msg: ${e.message}")
+                Log.e("NetworkManager", "❌ Send error: ${e.message}")
             }
         }
     }
 
-    private val processedMsgKeys = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
-
-    private fun startHttpFallbackPolling(roomCode: String) {
-        pollingJob?.cancel()
-        pollingJob = scope.launch(Dispatchers.IO) {
-            var lastSince = "all"
-            _isConnected.value = true
-            while (_isConnected.value && currentRoomCode == roomCode) {
-                try {
-                    val url = "https://ntfy.sh/hn_game_$roomCode/json?poll=1&since=$lastSince"
-                    val request = Request.Builder().url(url).build()
-                    client.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            val bodyStr = response.body?.string() ?: ""
-                            val lines = bodyStr.split("\n")
-                            for (line in lines) {
-                                if (line.trim().isNotEmpty()) {
-                                    val jsonObj = JSONObject(line)
-                                    val id = jsonObj.optString("id", "")
-                                    if (id.isNotEmpty()) lastSince = id
-                                    val msg = jsonObj.optString("message", "")
-                                    if (msg.isNotEmpty()) {
-                                        parseAndEmitMessage(msg)
-                                    } else if (jsonObj.has("type")) {
-                                        parseAndEmitMessage(line)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("OnlineNetworkManager", "Polling error: ${e.message}")
-                }
-                delay(1200)
-            }
-        }
-    }
-
+    /**
+     * ✅ معالجة الرسائل الواردة فوراً
+     */
     private fun parseAndEmitMessage(rawText: String) {
         try {
             val json = JSONObject(rawText)
@@ -199,47 +211,69 @@ class OnlineNetworkManager(private val scope: CoroutineScope) {
             val timestamp = json.optLong("timestamp", 0L)
             val payload = json.optString("payload", "")
 
-            // Deduplicate incoming messages across WS and HTTP polling
+            if (type.isEmpty() || senderId.isEmpty()) return
+            if (type == "VOICE" && payload.isEmpty()) return
+
             val msgKey = "$type-$senderId-$timestamp-${payload.hashCode()}"
             if (processedMsgKeys.contains(msgKey)) return
             processedMsgKeys.add(msgKey)
-            if (processedMsgKeys.size > 200) {
+
+            if (processedMsgKeys.size > 300) {
                 val iterator = processedMsgKeys.iterator()
-                if (iterator.hasNext()) {
-                    iterator.next()
-                    iterator.remove()
+                repeat(50) {
+                    if (iterator.hasNext()) {
+                        iterator.next()
+                        iterator.remove()
+                    }
                 }
             }
 
-            if (type.isNotEmpty()) {
-                val message = NetworkMessage(
-                    type = type,
-                    senderId = senderId,
-                    senderName = json.optString("senderName", ""),
-                    payload = payload,
-                    timestamp = if (timestamp > 0) timestamp else System.currentTimeMillis()
-                )
-                scope.launch {
-                    _incomingMessages.emit(message)
-                }
+            val message = NetworkMessage(
+                type = type,
+                senderId = senderId,
+                senderName = json.optString("senderName", ""),
+                payload = payload,
+                timestamp = if (timestamp > 0) timestamp else System.currentTimeMillis()
+            )
+
+            Log.d("NetworkManager", "📩 Received: $type from $senderId")
+
+            scope.launch(Dispatchers.Main) {
+                _incomingMessages.emit(message)
             }
+
         } catch (e: Exception) {
-            // Not a valid JSON game message
+            Log.d("NetworkManager", "⚠️ Invalid message: ${e.message}")
         }
     }
 
+    /**
+     * ✅ قطع الاتصال
+     */
     fun disconnect() {
-        pollingJob?.cancel()
-        pollingJob = null
         reconnectJob?.cancel()
         reconnectJob = null
+        isReconnecting = false
+
         try {
             webSocket?.close(1000, "Leaving room")
             webSocket = null
         } catch (e: Exception) {
-            Log.e("OnlineNetworkManager", "Error closing WS: ${e.message}")
+            Log.e("NetworkManager", "❌ Error closing WS: ${e.message}")
         }
+
         _isConnected.value = false
         currentRoomCode = null
+        sentMessageCache.clear()
+        processedMsgKeys.clear()
+
+        Log.d("NetworkManager", "🔌 Disconnected")
+    }
+
+    /**
+     * ✅ التحقق من الاتصال
+     */
+    fun isConnectedToRoom(): Boolean {
+        return _isConnected.value && webSocket != null
     }
 }
