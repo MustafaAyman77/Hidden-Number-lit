@@ -65,7 +65,7 @@ fun HistoryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { viewModel.navigateTo(AppScreen.HOME) }) {
+                IconButton(onClick = { viewModel.handleBackPress() }) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",

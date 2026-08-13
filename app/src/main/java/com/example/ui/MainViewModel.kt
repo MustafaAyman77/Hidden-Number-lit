@@ -618,9 +618,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun navigateTo(screen: AppScreen) {
+    private val backStack = mutableListOf<AppScreen>()
+
+    fun navigateTo(screen: AppScreen, clearStack: Boolean = false) {
         soundManager.playClick()
+        if (clearStack) {
+            backStack.clear()
+        } else if (_currentScreen.value != screen) {
+            // Keep stack clean without duplicate adjacent entries
+            if (backStack.isEmpty() || backStack.last() != _currentScreen.value) {
+                backStack.add(_currentScreen.value)
+            }
+        }
         _currentScreen.value = screen
+    }
+
+    fun handleBackPress(): Boolean {
+        val current = _currentScreen.value
+        soundManager.playClick()
+
+        when (current) {
+            AppScreen.HOME, AppScreen.LOGIN -> {
+                // Root screens: let system/caller handle double-tap exit
+                return false
+            }
+            AppScreen.REGISTER -> {
+                clearAuthError()
+                _currentScreen.value = AppScreen.LOGIN
+                return true
+            }
+            AppScreen.LOBBY -> {
+                leaveRoom()
+                return true
+            }
+            AppScreen.SECRET_SETUP -> {
+                if (_selectedMode.value == GameMode.SINGLE_PLAYER) {
+                    leaveRoom()
+                } else {
+                    _currentScreen.value = AppScreen.LOBBY
+                }
+                return true
+            }
+            AppScreen.GAMEPLAY -> {
+                leaveRoom()
+                return true
+            }
+            AppScreen.RESULTS -> {
+                leaveRoom()
+                return true
+            }
+            AppScreen.CREATE_JOIN, AppScreen.SETTINGS, AppScreen.HISTORY, AppScreen.PROFILE -> {
+                if (backStack.isNotEmpty()) {
+                    val prev = backStack.removeAt(backStack.size - 1)
+                    // If previous is not the same screen, navigate to it, otherwise HOME
+                    _currentScreen.value = if (prev != current) prev else AppScreen.HOME
+                } else {
+                    _currentScreen.value = AppScreen.HOME
+                }
+                return true
+            }
+        }
+    }
+
+    fun clearBackStack() {
+        backStack.clear()
     }
 
     fun toggleLanguage() {

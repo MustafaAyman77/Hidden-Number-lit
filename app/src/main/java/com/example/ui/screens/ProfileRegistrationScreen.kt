@@ -116,7 +116,7 @@ fun ProfileRegistrationScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = { viewModel.navigateTo(AppScreen.HOME) },
+                        onClick = { viewModel.handleBackPress() },
                         modifier = Modifier
                             .size(44.dp)
                             .clip(CircleShape)

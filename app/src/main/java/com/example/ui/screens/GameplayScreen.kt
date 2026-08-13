@@ -200,7 +200,7 @@ fun GameplayScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { viewModel.navigateTo(AppScreen.HOME) }) {
+                IconButton(onClick = { viewModel.handleBackPress() }) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
