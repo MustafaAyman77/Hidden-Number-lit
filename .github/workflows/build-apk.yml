@@ -79,24 +79,14 @@ jobs:
             SHA256_HASH=$(sha256sum "$APK_PATH" | awk '{print $1}')
             FILE_SIZE_BYTES=$(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH" 2>/dev/null || echo "16777216")
             FILE_SIZE_MB=$(echo "scale=1; $FILE_SIZE_BYTES / 1048576" | bc -l 2>/dev/null || echo "16.8")
+            REPO_NAME="${{ github.repository }}"
             
-            # Auto-update version.json with direct release download URL
-            cat <<EOF > version.json
-{
-  "versionCode": ${VERSION_CODE},
-  "versionName": "${VERSION_NAME}",
-  "apkUrl": "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${APK_NAME}",
-  "size": "${FILE_SIZE_MB} MB",
-  "releaseNotes": [
-    "تحديث تلقائي فوري برقم الإصدار ${VERSION_TAG}",
-    "تحسينات الأداء ومزامنة الغرف واللعب أونلاين",
-    "تثبيت مباشر وسلس لأحدث حزمة APK"
-  ],
-  "mandatory": false,
-  "sha256": "${SHA256_HASH}"
-}
-EOF
-            echo "✅ Generated new version.json for ${VERSION_TAG} (code: ${VERSION_CODE}) with apkUrl: https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${APK_NAME}"
+            # Write updated version.json cleanly
+            printf '{\n  "versionCode": %d,\n  "versionName": "%s",\n  "apkUrl": "https://github.com/%s/releases/download/%s/%s",\n  "size": "%s MB",\n  "releaseNotes": [\n    "تحديث تلقائي فوري برقم الإصدار %s",\n    "تحسينات الأداء ومزامنة الغرف واللعب أونلاين",\n    "تثبيت مباشر وسلس لأحدث حزمة APK"\n  ],\n  "mandatory": false,\n  "sha256": "%s"\n}\n' \
+              "$VERSION_CODE" "$VERSION_NAME" "$REPO_NAME" "$VERSION_TAG" "$APK_NAME" "$FILE_SIZE_MB" "$VERSION_TAG" "$SHA256_HASH" > version.json
+            
+            echo "Generated new version.json successfully"
+            cat version.json
           else
             echo "Error: $APK_PATH is missing!"
             find app/build/outputs/apk -name "*.apk" || true
