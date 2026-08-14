@@ -38,50 +38,64 @@ jobs:
           java -version
           echo "JAVA_HOME: $JAVA_HOME"
 
-      - name: Restore Keystore from base64
+      - name: Restore Keystore for Release
         run: |
           mkdir -p ~/.android
-          if [ -f "./debug.keystore.base64" ]; then
-            echo "Restoring permanent debug.keystore from debug.keystore.base64..."
-            base64 -d ./debug.keystore.base64 > ./debug.keystore
-            cp ./debug.keystore ~/.android/debug.keystore
-            echo "Keystore restored successfully to root and ~/.android/debug.keystore."
-          elif [ -f "./debug.keystore" ]; then
-            echo "debug.keystore already exists."
-            cp ./debug.keystore ~/.android/debug.keystore
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Restoring keystore from GitHub Secret KEYSTORE_BASE64..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ./my-upload-key.jks
+            cp ./my-upload-key.jks ./debug.keystore
+            cp ./my-upload-key.jks ~/.android/debug.keystore
+            echo "Restored from secret successfully."
+          elif [ -f "./debug.keystore.base64" ]; then
+            echo "Restoring permanent keystore from debug.keystore.base64..."
+            base64 -d ./debug.keystore.base64 > ./my-upload-key.jks
+            cp ./my-upload-key.jks ./debug.keystore
+            cp ./my-upload-key.jks ~/.android/debug.keystore
+            echo "Keystore restored successfully from repository backup."
+          elif [ -f "./my-upload-key.jks" ]; then
+            echo "my-upload-key.jks already exists."
+            cp ./my-upload-key.jks ./debug.keystore
+            cp ./my-upload-key.jks ~/.android/debug.keystore
           else
-            echo "Generating fallback debug.keystore..."
+            echo "Generating fallback keystore..."
             keytool -genkey -v \
-              -keystore ./debug.keystore \
+              -keystore ./my-upload-key.jks \
               -storepass android \
               -alias androiddebugkey \
               -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US" \
+              -dname "CN=Android Release,O=Android,C=US" \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000
-            cp ./debug.keystore ~/.android/debug.keystore
+            cp ./my-upload-key.jks ./debug.keystore
+            cp ./my-upload-key.jks ~/.android/debug.keystore
           fi
 
-      - name: Build Debug APK with Dynamic Version
+      - name: Build Release APK with Dynamic Version
         run: |
           RUN_NUM="${{ github.run_number }}"
           VERSION_NAME="1.0.${RUN_NUM}"
           VERSION_CODE=$(( 100000 + RUN_NUM ))
-          echo "Building APK for Version: $VERSION_NAME (Code: $VERSION_CODE)"
-          gradle :app:assembleDebug -PversionCode=${VERSION_CODE} -PversionName=${VERSION_NAME} --stacktrace --no-daemon
+          echo "Building Release APK for Version: $VERSION_NAME (Code: $VERSION_CODE)"
+          gradle :app:assembleRelease -PversionCode=${VERSION_CODE} -PversionName=${VERSION_NAME} --stacktrace --no-daemon
         env:
           BUILD_RUN_NUMBER: ${{ github.run_number }}
           BUILD_VERSION_NAME: 1.0.${{ github.run_number }}
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'androiddebugkey' }}
 
       - name: Prepare Release APK File and Auto-Update version.json
         run: |
-          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          fi
+          
           if [ -f "$APK_PATH" ]; then
-            echo "Debug APK found at $APK_PATH"
+            echo "Release APK found at $APK_PATH"
             RUN_NUM="${{ github.run_number }}"
             VERSION_TAG="v1.0.${RUN_NUM}"
             VERSION_NAME="1.0.${RUN_NUM}"
@@ -103,7 +117,7 @@ jobs:
             echo "Generated new version.json successfully"
             cat version.json
           else
-            echo "Error: $APK_PATH is missing!"
+            echo "Error: Release APK is missing!"
             find app/build/outputs/apk -name "*.apk" || true
             exit 1
           fi
@@ -120,9 +134,9 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          name: app-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -131,13 +145,13 @@ jobs:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v1.0.{0}', github.run_number) }}
           name: ${{ github.ref_type == 'tag' && github.ref_name || format('Release v1.0.{0}', github.run_number) }}
           body: |
-            🚀 **تحديث جديد - لعبة الرقم المخفي**
+            🚀 **تحديث جديد - لعبة الرقم المخفي (Release Build)**
 
             - تم بناء وتطبيق التحديث تلقائياً برقم الإصدار `v1.0.${{ github.run_number }}`.
             - اضغط على ملف `HiddenNumber-v1.0.${{ github.run_number }}.apk` أدناه لتنزيله وتثبيته مباشرة.
           files: |
             HiddenNumber-v1.0.${{ github.run_number }}.apk
-            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
           draft: false
           prerelease: false
         env:

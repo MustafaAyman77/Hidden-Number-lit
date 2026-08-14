@@ -32,21 +32,19 @@ android {
   }
 
   signingConfigs {
-    val localDebugKeystore = file("${rootDir}/debug.keystore")
-    if (localDebugKeystore.exists()) {
-      create("debugConfig") {
-        storeFile = localDebugKeystore
-        storePassword = System.getenv("STORE_PASSWORD") ?: "android"
-        keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
-        keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
-      }
-    }
-
     val releaseKeystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
     val releaseKeystoreFile = file(releaseKeystorePath)
-    if (releaseKeystoreFile.exists()) {
+    val localDebugKeystore = file("${rootDir}/debug.keystore")
+
+    val activeKeystore = when {
+      releaseKeystoreFile.exists() -> releaseKeystoreFile
+      localDebugKeystore.exists() -> localDebugKeystore
+      else -> null
+    }
+
+    if (activeKeystore != null) {
       create("release") {
-        storeFile = releaseKeystoreFile
+        storeFile = activeKeystore
         storePassword = System.getenv("STORE_PASSWORD") ?: "android"
         keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
         keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
@@ -59,13 +57,16 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      val customRelease = signingConfigs.findByName("release")
-      val customDebug = signingConfigs.findByName("debugConfig")
-      signingConfig = customRelease ?: customDebug ?: signingConfigs.getByName("debug")
+      val releaseConfig = signingConfigs.findByName("release")
+      if (releaseConfig != null) {
+        signingConfig = releaseConfig
+      }
     }
     debug {
-      val customDebug = signingConfigs.findByName("debugConfig")
-      signingConfig = customDebug ?: signingConfigs.getByName("debug")
+      val releaseConfig = signingConfigs.findByName("release")
+      if (releaseConfig != null) {
+        signingConfig = releaseConfig
+      }
     }
   }
   compileOptions {
