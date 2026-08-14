@@ -29,18 +29,18 @@ android {
     if (releaseKeystoreFile.exists()) {
       create("release") {
         storeFile = releaseKeystoreFile
-        storePassword = System.getenv("STORE_PASSWORD")
-        keyAlias = "upload"
-        keyPassword = System.getenv("KEY_PASSWORD")
+        storePassword = System.getenv("STORE_PASSWORD") ?: "android"
+        keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
+        keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
       }
     }
     val localDebugKeystore = file("${rootDir}/debug.keystore")
     if (localDebugKeystore.exists()) {
       create("debugConfig") {
         storeFile = localDebugKeystore
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
+        storePassword = System.getenv("STORE_PASSWORD") ?: "android"
+        keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
+        keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
       }
     }
   }

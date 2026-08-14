@@ -57,6 +57,10 @@ jobs:
 
       - name: Build Debug APK
         run: gradle :app:assembleDebug --stacktrace --no-daemon
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'androiddebugkey' }}
 
       - name: Prepare Release APK File
         run: |
