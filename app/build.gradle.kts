@@ -14,11 +14,11 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.hiddennumber.game.test"
+    applicationId = "com.aistudio.hiddennumber.game"
     minSdk = 24
     targetSdk = 36
-    versionCode = 100115
-    versionName = "1.0.115"
+    versionCode = 100113
+    versionName = "1.0.113"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
