@@ -38,12 +38,16 @@ jobs:
           java -version
           echo "JAVA_HOME: $JAVA_HOME"
 
-      - name: Create temporary debug keystore
+      - name: Restore Keystore from base64
         run: |
-          if [ -f "./debug.keystore" ]; then
+          if [ -f "./debug.keystore.base64" ]; then
+            echo "Restoring permanent debug.keystore from debug.keystore.base64..."
+            base64 -d ./debug.keystore.base64 > ./debug.keystore
+            echo "Keystore restored successfully."
+          elif [ -f "./debug.keystore" ]; then
             echo "debug.keystore already exists."
           else
-            echo "Generating temporary debug.keystore..."
+            echo "Generating fallback debug.keystore..."
             keytool -genkey -v \
               -keystore ./debug.keystore \
               -storepass android \
