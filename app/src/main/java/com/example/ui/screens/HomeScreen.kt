@@ -20,9 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Public
@@ -105,7 +107,25 @@ fun HomeScreen(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("7", fontSize = 26.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Box(
+                        modifier = Modifier.size(36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Lock",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Stars",
+                            tint = NeonYellow,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .align(Alignment.TopEnd)
+                        )
+                    }
                 }
 
                 Column {

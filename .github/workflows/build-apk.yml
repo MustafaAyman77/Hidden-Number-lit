@@ -40,12 +40,15 @@ jobs:
 
       - name: Restore Keystore from base64
         run: |
+          mkdir -p ~/.android
           if [ -f "./debug.keystore.base64" ]; then
             echo "Restoring permanent debug.keystore from debug.keystore.base64..."
             base64 -d ./debug.keystore.base64 > ./debug.keystore
-            echo "Keystore restored successfully."
+            cp ./debug.keystore ~/.android/debug.keystore
+            echo "Keystore restored successfully to root and ~/.android/debug.keystore."
           elif [ -f "./debug.keystore" ]; then
             echo "debug.keystore already exists."
+            cp ./debug.keystore ~/.android/debug.keystore
           else
             echo "Generating fallback debug.keystore..."
             keytool -genkey -v \
@@ -57,6 +60,7 @@ jobs:
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000
+            cp ./debug.keystore ~/.android/debug.keystore
           fi
 
       - name: Build Debug APK with Dynamic Version
