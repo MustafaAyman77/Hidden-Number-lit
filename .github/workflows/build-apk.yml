@@ -62,17 +62,55 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'androiddebugkey' }}
 
-      - name: Prepare Release APK File
+      - name: Prepare Release APK File and Auto-Update version.json
         run: |
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           if [ -f "$APK_PATH" ]; then
             echo "Debug APK found at $APK_PATH"
-            cp "$APK_PATH" "HiddenNumber-v1.0.${{ github.run_number }}.apk"
+            RUN_NUM="${{ github.run_number }}"
+            VERSION_TAG="v1.0.${RUN_NUM}"
+            VERSION_NAME="1.0.${RUN_NUM}"
+            VERSION_CODE=$(( 100000 + RUN_NUM ))
+            APK_NAME="HiddenNumber-${VERSION_TAG}.apk"
+            
+            cp "$APK_PATH" "$APK_NAME"
+            
+            # Calculate SHA256
+            SHA256_HASH=$(sha256sum "$APK_PATH" | awk '{print $1}')
+            FILE_SIZE_BYTES=$(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH" 2>/dev/null || echo "16777216")
+            FILE_SIZE_MB=$(echo "scale=1; $FILE_SIZE_BYTES / 1048576" | bc -l 2>/dev/null || echo "16.8")
+            
+            # Auto-update version.json with direct release download URL
+            cat <<EOF > version.json
+{
+  "versionCode": ${VERSION_CODE},
+  "versionName": "${VERSION_NAME}",
+  "apkUrl": "https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${APK_NAME}",
+  "size": "${FILE_SIZE_MB} MB",
+  "releaseNotes": [
+    "تحديث تلقائي فوري برقم الإصدار ${VERSION_TAG}",
+    "تحسينات الأداء ومزامنة الغرف واللعب أونلاين",
+    "تثبيت مباشر وسلس لأحدث حزمة APK"
+  ],
+  "mandatory": false,
+  "sha256": "${SHA256_HASH}"
+}
+EOF
+            echo "✅ Generated new version.json for ${VERSION_TAG} (code: ${VERSION_CODE}) with apkUrl: https://github.com/${{ github.repository }}/releases/download/${VERSION_TAG}/${APK_NAME}"
           else
             echo "Error: $APK_PATH is missing!"
             find app/build/outputs/apk -name "*.apk" || true
             exit 1
           fi
+
+      - name: Commit & Push updated version.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git diff --staged --quiet || (git commit -m "chore(release): auto-update version.json to v1.0.${{ github.run_number }} [skip ci]" && git push origin HEAD:${{ github.ref_name }})
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

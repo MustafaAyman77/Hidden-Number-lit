@@ -584,7 +584,11 @@ class AppUpdateManager(
             val major = numericParts.getOrNull(0)?.toIntOrNull() ?: 1
             val minor = numericParts.getOrNull(1)?.toIntOrNull() ?: 0
             val patch = numericParts.getOrNull(2)?.toIntOrNull() ?: 0
-            val versionCode = major * 10000 + minor * 100 + patch
+            val versionCode = if (major == 1 && minor == 0 && patch > 0) {
+                100000 + patch
+            } else {
+                major * 10000 + minor * 100 + patch
+            }
 
             val notes = if (body.isNotBlank()) {
                 body.split("\n").map { it.trim() }.filter { it.isNotBlank() }
