@@ -13,12 +13,20 @@ android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
+  val runNumber = System.getenv("BUILD_RUN_NUMBER")?.toIntOrNull()
+      ?: (project.findProperty("versionCode") as? String)?.toIntOrNull()
+      ?: 100138
+  val dynamicVersionCode = if (runNumber < 100000) 100000 + runNumber else runNumber
+  val dynamicVersionName = System.getenv("BUILD_VERSION_NAME")
+      ?: (project.findProperty("versionName") as? String)
+      ?: "1.0.${if (runNumber >= 100000) runNumber - 100000 else runNumber}"
+
   defaultConfig {
     applicationId = "com.aistudio.hiddennumber.game"
     minSdk = 24
     targetSdk = 36
-    versionCode = 100114
-    versionName = "1.0.114"
+    versionCode = dynamicVersionCode
+    versionName = dynamicVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

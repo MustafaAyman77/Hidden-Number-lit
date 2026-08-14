@@ -425,11 +425,22 @@ class AppUpdateManager(
         currentVersionCode: Long,
         currentVersionName: String
     ): Boolean {
-        if (manifest.versionCode > currentVersionCode) return true
-        if (manifest.versionCode < currentVersionCode) return false
-
         val cleanNew = manifest.versionName.trim().removePrefix("v").removePrefix("V")
         val cleanCurrent = currentVersionName.trim().removePrefix("v").removePrefix("V")
+
+        // 1. If version names are identical, the user is already on the exact same version
+        if (cleanNew.equals(cleanCurrent, ignoreCase = true) && cleanNew.isNotEmpty()) {
+            return false
+        }
+
+        // 2. Normalize version codes (support both 138 and 100138 formats)
+        val normalizedNewCode: Long = if (manifest.versionCode >= 100000) (manifest.versionCode - 100000).toLong() else manifest.versionCode.toLong()
+        val normalizedCurCode: Long = if (currentVersionCode >= 100000) currentVersionCode - 100000L else currentVersionCode
+
+        if (normalizedNewCode > normalizedCurCode) return true
+        if (normalizedNewCode < normalizedCurCode) return false
+
+        // 3. Fallback to semantic version comparison
         return isSemverNewer(cleanNew, cleanCurrent)
     }
 
