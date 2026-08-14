@@ -1,13 +1,13 @@
 {
-  "versionCode": 100114,
-  "versionName": "1.0.114",
-  "apkUrl": "https://github.com/MustafaAyman77/Hidden-Number-lit/releases/latest/download/app-debug.apk",
-  "size": "16.8 MB",
+  "versionCode": 100142,
+  "versionName": "1.0.142",
+  "apkUrl": "https://github.com/MustafaAyman77/Hidden-Number-lit/releases/download/v1.0.142/HiddenNumber-v1.0.142.apk",
+  "size": "22.6 MB",
   "releaseNotes": [
-    "حل مشكلة تعارض حزم التثبيت وتوحيد التوقيع الرقمي",
-    "تحسين التنقل وزر الرجوع ومنع الخروج العرضي",
-    "تحديث رقم الإصدار إلى 1.0.114"
+    "تحديث تلقائي فوري برقم الإصدار v1.0.142",
+    "تحسينات الأداء ومزامنة الغرف واللعب أونلاين",
+    "تثبيت مباشر وسلس لأحدث حزمة APK"
   ],
   "mandatory": false,
-  "sha256": ""
+  "sha256": "18fbdfd8e4a67e5fded5d7c50affd4a367fb3df704efc6080fad1f8dedbd9789"
 }
